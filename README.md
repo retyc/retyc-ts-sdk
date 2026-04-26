@@ -209,7 +209,7 @@ await sdk.transfers.forceDelete('transfer-id')
 
 | Method | Returns | Description |
 | --- | --- | --- |
-| `getMe()` | `UserApiResponse` | Authenticated user profile + Keycloak extra data + roles |
+| `getMe()` | `UserApiResponse` | Authenticated user profile + OIDC extra data + roles |
 | `getActiveKey()` | `UserKeyApiResponse` | Active age keypair (`public_key`, `private_key_enc`, `status`) |
 
 ### Token stores

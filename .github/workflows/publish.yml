@@ -27,14 +27,9 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm ci
 
-      - run: npm ci --ignore-scripts
+      - run: npm run build
 
       - name: Verify tag matches package.json version
         env:

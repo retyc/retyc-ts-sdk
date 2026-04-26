@@ -1,7 +1,7 @@
 {
   "name": "@retyc/sdk",
-  "version": "0.0.1",
-  "description": "TypeScript SDK for the Retyc API — Keycloak auth + E2E encrypted transfers",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the Retyc API — OIDC auth + E2E encrypted transfers",
   "type": "module",
   "engines": {
     "node": ">=18"
