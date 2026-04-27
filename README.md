@@ -69,16 +69,27 @@ console.log('Authenticated! Access token expires at:', tokens.expiresAt)
 
 #### Reloading an existing session
 
-If tokens were persisted (e.g. via `FileTokenStore`), call `preload()` once on startup so the SDK can refresh them without prompting the user again:
+If tokens were persisted (e.g. via `FileTokenStore`), the SDK auto-refreshes them on the first request — no extra setup needed.
 
 ```ts
-await sdk.preload()
-
-// Check if already authenticated
 const tokens = await sdk.auth.getTokens()
 if (!tokens) {
   // Run device flow...
 }
+```
+
+Optionally, call `preload()` once on startup to pre-fetch the OIDC config and avoid latency on the first refresh:
+
+```ts
+await sdk.preload()
+```
+
+#### Manual refresh
+
+The SDK refreshes tokens automatically when needed (on expiry or on a 401). You can also force a refresh manually:
+
+```ts
+const tokens = await sdk.auth.refresh()
 ```
 
 #### Logout
@@ -204,6 +215,15 @@ await sdk.transfers.forceDelete('transfer-id')
 | `chunkSize` | `number` | `8388608` (8 MB) | Upload chunk size in bytes |
 | `uploadConcurrency` | `number` | `4` | Max concurrent chunk uploads |
 | `downloadConcurrency` | `number` | `4` | Max concurrent chunk downloads |
+
+### `sdk.auth`
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `startDeviceFlow()` | `DeviceFlowResult` | Initiate the OAuth 2.0 Device Authorization Grant. Call `.poll()` on the result to wait for the user. |
+| `refresh()` | `TokenSet` | Force a token refresh using the stored refresh token. Refreshes are otherwise triggered automatically. |
+| `getTokens()` | `TokenSet \| null` | Read the currently stored tokens (or `null` if not authenticated). |
+| `logout()` | `void` | Clear stored tokens. |
 
 ### `sdk.user`
 

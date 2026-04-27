@@ -38,7 +38,7 @@ describe('TokenManager', () => {
 
   beforeEach(() => {
     store = new InMemoryTokenStore()
-    manager = new TokenManager(store, mockOIDCConfig)
+    manager = new TokenManager(store, 'https://api.example.com', mockOIDCConfig)
   })
 
   it('throws when not authenticated', async () => {
@@ -129,7 +129,7 @@ describe('Device Flow polling', () => {
   it('returns tokens when user authorizes', async () => {
     const { startDeviceFlow } = await import('../auth/device-flow.js')
     const store = new InMemoryTokenStore()
-    const manager = new TokenManager(store, mockOIDCConfig)
+    const manager = new TokenManager(store, 'https://api.example.com', mockOIDCConfig)
 
     let callCount = 0
     const fetchMock = vi.fn().mockImplementation((url: string) => {
@@ -168,7 +168,7 @@ describe('Device Flow polling', () => {
   it('throws when access denied', async () => {
     const { startDeviceFlow } = await import('../auth/device-flow.js')
     const store = new InMemoryTokenStore()
-    const manager = new TokenManager(store, mockOIDCConfig)
+    const manager = new TokenManager(store, 'https://api.example.com', mockOIDCConfig)
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes('auth/device')) {
