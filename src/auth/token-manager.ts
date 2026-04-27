@@ -1,6 +1,6 @@
 import type { TokenSet } from './types.js'
 import type { TokenStore } from './token-store.js'
-import type { OIDCConfig } from './oidc-discovery.js'
+import { fetchOIDCConfig, type OIDCConfig } from './oidc-discovery.js'
 
 const EXPIRY_MARGIN_SECONDS = 10
 
@@ -9,6 +9,7 @@ export class TokenManager {
 
   constructor(
     private readonly store: TokenStore,
+    private readonly apiUrl: string,
     private oidcConfig: OIDCConfig | null = null,
   ) {}
 
@@ -26,6 +27,14 @@ export class TokenManager {
       return this.refresh(tokens.refreshToken)
     }
     return tokens
+  }
+
+  async forceRefresh(): Promise<TokenSet> {
+    const tokens = await this.store.get()
+    if (!tokens) {
+      throw new Error('Not authenticated. Call sdk.auth.startDeviceFlow() first.')
+    }
+    return this.refresh(tokens.refreshToken)
   }
 
   async refresh(refreshToken: string): Promise<TokenSet> {
@@ -51,18 +60,23 @@ export class TokenManager {
     return Date.now() / 1000 + EXPIRY_MARGIN_SECONDS >= tokens.expiresAt
   }
 
-  private async doRefresh(refreshToken: string): Promise<TokenSet> {
+  private async ensureOIDCConfig(): Promise<OIDCConfig> {
     if (!this.oidcConfig) {
-      throw new Error('OIDC config not loaded. Cannot refresh token.')
+      this.oidcConfig = await fetchOIDCConfig(this.apiUrl)
     }
+    return this.oidcConfig
+  }
+
+  private async doRefresh(refreshToken: string): Promise<TokenSet> {
+    const config = await this.ensureOIDCConfig()
 
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
-      client_id: this.oidcConfig.clientId,
+      client_id: config.clientId,
       refresh_token: refreshToken,
     })
 
-    const response = await fetch(this.oidcConfig.tokenUrl, {
+    const response = await fetch(config.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),

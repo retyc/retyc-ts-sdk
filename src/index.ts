@@ -32,6 +32,7 @@ export class RetycSDK {
 
   readonly auth: {
     startDeviceFlow(): Promise<DeviceFlowResult>
+    refresh(): Promise<TokenSet>
     logout(): Promise<void>
     getTokens(): Promise<TokenSet | null>
   }
@@ -49,8 +50,8 @@ export class RetycSDK {
     forceDelete(transferId: string): Promise<void>
   }
 
-  // Fetches and caches OIDC config so token refresh works without a prior startDeviceFlow call.
-  // Call this once after construction if the user is already authenticated (e.g. on extension reload).
+  // Pre-fetches the OIDC config to avoid latency on the first refresh. Optional:
+  // doRefresh() lazy-loads the config on demand if this was not called.
   async preload(): Promise<void> {
     const oidcConfig = await fetchOIDCConfig(this.apiUrl)
     this.tokenManager.setOIDCConfig(oidcConfig)
@@ -58,7 +59,7 @@ export class RetycSDK {
 
   constructor(config: SDKConfig) {
     const store = config.tokenStore ?? new InMemoryTokenStore()
-    this.tokenManager = new TokenManager(store)
+    this.tokenManager = new TokenManager(store, config.apiUrl)
     this.http = new FetchClient(config.apiUrl, this.tokenManager)
     this.userApi = new UserApiClient(this.http)
     this.transferApi = new TransferApiClient(this.http)
@@ -74,6 +75,9 @@ export class RetycSDK {
         const oidcConfig = await fetchOIDCConfig(self.apiUrl)
         self.tokenManager.setOIDCConfig(oidcConfig)
         return startDeviceFlow(oidcConfig, self.tokenManager)
+      },
+      refresh(): Promise<TokenSet> {
+        return self.tokenManager.forceRefresh()
       },
       async logout(): Promise<void> {
         await self.tokenManager.clear()
