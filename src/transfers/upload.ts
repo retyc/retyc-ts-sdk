@@ -83,6 +83,7 @@ export async function uploadTransfer(
   return {
     transferId: transfer.id,
     slug: transfer.slug,
+    webUrl: transfer.web_url,
   }
 }
 

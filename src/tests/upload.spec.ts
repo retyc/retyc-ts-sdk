@@ -7,6 +7,7 @@ function makeApiMock(overrides: Partial<TransferApiClient> = {}): TransferApiCli
     createTransfer: vi.fn().mockResolvedValue({
       id: 'transfer-123',
       slug: 'abc123',
+      web_url: 'https://retyc.io/t/abc123',
       public_keys: [],
       use_passphrase: false,
       session_private_key_enc: null,
@@ -25,9 +26,11 @@ function makeApiMock(overrides: Partial<TransferApiClient> = {}): TransferApiCli
       original_size: 5,
       encrypted_size: 100,
       share_id: 'transfer-123',
+      custom_model_name: null,
     }),
     uploadChunk: vi.fn().mockResolvedValue(undefined),
     downloadChunk: vi.fn(),
+    getTransfer: vi.fn(),
     getTransferDetails: vi.fn(),
     getTransferFiles: vi.fn(),
     disableTransfer: vi.fn(),
@@ -48,6 +51,7 @@ describe('uploadTransfer', () => {
 
     expect(result.transferId).toBe('transfer-123')
     expect(result.slug).toBe('abc123')
+    expect(result.webUrl).toBe('https://retyc.io/t/abc123')
     expect(api.createTransfer).toHaveBeenCalledWith({
       emails: ['alice@example.com'],
       expires: 3600,
@@ -85,6 +89,7 @@ describe('uploadTransfer', () => {
         original_size: 100,
         encrypted_size: 200,
         share_id: 'transfer-123',
+        custom_model_name: null,
       }),
     })
 

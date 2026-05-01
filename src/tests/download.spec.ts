@@ -11,6 +11,22 @@ import {
 } from '../crypto/age.js'
 import type { TransferApiClient } from '../transfers/transfer-client.js'
 
+function makeTransferApiMock(overrides: Partial<TransferApiClient> = {}): TransferApiClient {
+  return {
+    createTransfer: vi.fn(),
+    finalizeTransfer: vi.fn(),
+    registerFile: vi.fn(),
+    uploadChunk: vi.fn(),
+    downloadChunk: vi.fn(),
+    getTransfer: vi.fn(),
+    getTransferDetails: vi.fn(),
+    getTransferFiles: vi.fn(),
+    disableTransfer: vi.fn(),
+    forceDeleteTransfer: vi.fn(),
+    ...overrides,
+  } as unknown as TransferApiClient
+}
+
 describe('downloadTransfer', () => {
   it('downloads and decrypts files from a transfer', async () => {
     const sessionKey = await generateIdentity()
@@ -21,13 +37,8 @@ describe('downloadTransfer', () => {
     const typeEnc = await encryptString('text/plain', [sessionKey.publicKey])
     const encryptedChunk = await encryptChunk(new Uint8Array(originalData), sessionKey.publicKey)
 
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       downloadChunk: vi.fn().mockResolvedValue(encryptedChunk),
-      getTransferDetails: vi.fn(),
       getTransferFiles: vi.fn().mockResolvedValue([{
         id: 'file-001',
         name_enc: nameEnc,
@@ -36,10 +47,9 @@ describe('downloadTransfer', () => {
         original_size: originalData.length,
         encrypted_size: encryptedChunk.length,
         share_id: 'transfer-123',
+        custom_model_name: null,
       }]),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     const files = await downloadTransfer(transferApi, 'transfer-123', sessionKey.privateKey, {})
 
@@ -58,13 +68,8 @@ describe('downloadTransfer', () => {
     const typeEnc = await encryptString('text/plain', [sessionKey.publicKey])
     const encryptedChunk = await encryptChunk(new Uint8Array(originalData), sessionKey.publicKey)
 
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       downloadChunk: vi.fn().mockResolvedValue(encryptedChunk),
-      getTransferDetails: vi.fn(),
       getTransferFiles: vi.fn().mockResolvedValue([{
         id: 'file-001',
         name_enc: nameEnc,
@@ -73,10 +78,9 @@ describe('downloadTransfer', () => {
         original_size: originalData.length,
         encrypted_size: encryptedChunk.length,
         share_id: 'transfer-123',
+        custom_model_name: null,
       }]),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     const outputPath = mkdtempSync(path.join(tmpdir(), 'retyc-download-'))
 
@@ -109,13 +113,8 @@ describe('downloadTransfer', () => {
     const typeEnc = await encryptString('text/plain', [sessionKey.publicKey])
     const encryptedChunk = await encryptChunk(new Uint8Array(originalData), sessionKey.publicKey)
 
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       downloadChunk: vi.fn().mockResolvedValue(encryptedChunk),
-      getTransferDetails: vi.fn(),
       getTransferFiles: vi.fn().mockResolvedValue([{
         id: 'file-001',
         name_enc: nameEnc,
@@ -124,10 +123,9 @@ describe('downloadTransfer', () => {
         original_size: originalData.length,
         encrypted_size: encryptedChunk.length,
         share_id: 'transfer-123',
+        custom_model_name: null,
       }]),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     const outputPath = mkdtempSync(path.join(tmpdir(), 'retyc-download-'))
 
@@ -149,22 +147,14 @@ describe('resolveSessionKey', () => {
 
     const sessionKeyEnc = await encryptString(sessionKey.privateKey, [userIdentity.publicKey])
 
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
-      downloadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       getTransferDetails: vi.fn().mockResolvedValue({
         id: 'transfer-123',
         slug: 'abc',
         session_private_key_enc: sessionKeyEnc,
         session_public_key: sessionKey.publicKey,
       }),
-      getTransferFiles: vi.fn(),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     const resolved = await resolveSessionKey(transferApi, 'transfer-123', {
       privateKey: userIdentity.privateKey,
@@ -187,12 +177,7 @@ describe('resolveSessionKey', () => {
       [ephemeralKey.publicKey],
     )
 
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
-      downloadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       getTransferDetails: vi.fn().mockResolvedValue({
         id: 'transfer-123',
         slug: 'abc',
@@ -202,10 +187,7 @@ describe('resolveSessionKey', () => {
         ephemeral_public_key: ephemeralKey.publicKey,
         session_private_key_enc_for_passphrase: sessionPrivateKeyEncForPassphrase,
       }),
-      getTransferFiles: vi.fn(),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     const resolved = await resolveSessionKey(transferApi, 'transfer-123', {
       transferPassphrase,
@@ -215,39 +197,21 @@ describe('resolveSessionKey', () => {
   }, 20000)
 
   it('throws when neither privateKey nor transferPassphrase is provided', async () => {
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
-      downloadChunk: vi.fn(),
-      getTransferDetails: vi.fn(),
-      getTransferFiles: vi.fn(),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    const transferApi = makeTransferApiMock()
 
     await expect(resolveSessionKey(transferApi, 'transfer-123', {}))
       .rejects.toThrow('privateKey or transferPassphrase')
   })
 
   it('throws when transfer has no session key in account mode', async () => {
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
-      downloadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       getTransferDetails: vi.fn().mockResolvedValue({
         id: 'transfer-123',
         slug: 'abc',
         session_private_key_enc: null,
         session_public_key: null,
       }),
-      getTransferFiles: vi.fn(),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     await expect(resolveSessionKey(transferApi, 'transfer-123', {
       privateKey: 'AGE-SECRET-KEY-...',
@@ -255,12 +219,7 @@ describe('resolveSessionKey', () => {
   })
 
   it('throws when transferPassphrase is provided but ephemeral fields are null', async () => {
-    const transferApi: TransferApiClient = {
-      createTransfer: vi.fn(),
-      finalizeTransfer: vi.fn(),
-      registerFile: vi.fn(),
-      uploadChunk: vi.fn(),
-      downloadChunk: vi.fn(),
+    const transferApi = makeTransferApiMock({
       getTransferDetails: vi.fn().mockResolvedValue({
         id: 'transfer-123',
         slug: 'abc',
@@ -270,13 +229,64 @@ describe('resolveSessionKey', () => {
         ephemeral_public_key: null,
         session_private_key_enc_for_passphrase: null,
       }),
-      getTransferFiles: vi.fn(),
-      disableTransfer: vi.fn(),
-      forceDeleteTransfer: vi.fn(),
-    } as unknown as TransferApiClient
+    })
 
     await expect(resolveSessionKey(transferApi, 'transfer-123', {
       transferPassphrase: 'irrelevant',
     })).rejects.toThrow('passphrase-based access')
+  })
+})
+
+describe('getTransfer', () => {
+  const mockTransfer = {
+    id: 'transfer-123',
+    slug: 'abc123',
+    web_url: 'https://retyc.io/t/abc123',
+    use_passphrase: false,
+    status: 'active' as const,
+    is_custom_share: false,
+    title: 'My transfer',
+    message_enc: null,
+    created_at: '2026-05-01T00:00:00Z',
+    deleted_at: null,
+    session_public_key: null,
+    session_private_key_enc: null,
+    ephemeral_public_key: null,
+    ephemeral_private_key_enc: null,
+    session_private_key_enc_for_passphrase: null,
+  }
+
+  it('returns the transfer from the API', async () => {
+    const transferApi = makeTransferApiMock({
+      getTransfer: vi.fn().mockResolvedValue(mockTransfer),
+    })
+
+    const result = await transferApi.getTransfer('transfer-123')
+
+    expect(transferApi.getTransfer).toHaveBeenCalledWith('transfer-123')
+    expect(result.id).toBe('transfer-123')
+    expect(result.slug).toBe('abc123')
+    expect(result.web_url).toBe('https://retyc.io/t/abc123')
+    expect(result.status).toBe('active')
+    expect(result.use_passphrase).toBe(false)
+  })
+
+  it('returns transfer with passphrase fields when use_passphrase is true', async () => {
+    const transferApi = makeTransferApiMock({
+      getTransfer: vi.fn().mockResolvedValue({
+        ...mockTransfer,
+        use_passphrase: true,
+        ephemeral_public_key: 'age1pq1abc...',
+        ephemeral_private_key_enc: 'AGE ENCRYPTED FILE...',
+        session_private_key_enc_for_passphrase: 'AGE ENCRYPTED FILE...',
+      }),
+    })
+
+    const result = await transferApi.getTransfer('transfer-123')
+
+    expect(result.use_passphrase).toBe(true)
+    expect(result.ephemeral_public_key).toBeTruthy()
+    expect(result.ephemeral_private_key_enc).toBeTruthy()
+    expect(result.session_private_key_enc_for_passphrase).toBeTruthy()
   })
 })

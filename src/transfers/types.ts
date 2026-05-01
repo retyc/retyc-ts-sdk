@@ -19,6 +19,7 @@ export interface UploadFile {
 export interface UploadResult {
   transferId: string
   slug: string
+  webUrl: string
 }
 
 export interface ResolveSessionKeyOptions {
@@ -44,6 +45,7 @@ export interface DownloadedFile {
 export interface TransferCreateApiResponse {
   id: string
   slug: string
+  web_url: string
   public_keys: string[]
   use_passphrase: boolean
   session_private_key_enc: string | null
@@ -71,11 +73,14 @@ export interface FileRegisterApiResponse {
   original_size: number
   encrypted_size: number
   share_id: string
+  custom_model_name: string | null
 }
 
 export interface TransferDetailsApiResponse {
   id: string
   slug: string
+  web_url: string
+  use_passphrase: boolean
   session_private_key_enc: string | null
   session_public_key: string | null
   ephemeral_private_key_enc: string | null
@@ -91,6 +96,27 @@ export interface FileMetaApiResponse {
   original_size: number
   encrypted_size: number
   share_id: string
+  custom_model_name: string | null
+}
+
+export type ShareStatus = 'pending' | 'expired' | 'active' | 'disabled' | 'error' | 'deleted'
+
+export interface TransferApiResponse {
+  id: string
+  slug: string
+  web_url: string
+  use_passphrase: boolean
+  status: ShareStatus
+  is_custom_share: boolean
+  title: string | null
+  message_enc: string | null
+  created_at: string
+  deleted_at: string | null
+  session_public_key: string | null
+  session_private_key_enc: string | null
+  ephemeral_public_key: string | null
+  ephemeral_private_key_enc: string | null
+  session_private_key_enc_for_passphrase: string | null
 }
 
 export interface PageApiResponse<T> {

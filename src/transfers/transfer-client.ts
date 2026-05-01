@@ -3,6 +3,7 @@ import type {
   TransferCreateApiResponse,
   TransferCompletePayload,
   FileRegisterApiResponse,
+  TransferApiResponse,
   TransferDetailsApiResponse,
   FileMetaApiResponse,
   PageApiResponse,
@@ -40,6 +41,10 @@ export class TransferApiClient {
 
   async downloadChunk(fileId: string, chunkId: number): Promise<Uint8Array> {
     return this.http.getBytes(`/file/${fileId}/${chunkId}`)
+  }
+
+  async getTransfer(transferId: string): Promise<TransferApiResponse> {
+    return this.http.get<TransferApiResponse>(`/share/${transferId}`)
   }
 
   async getTransferDetails(transferId: string): Promise<TransferDetailsApiResponse> {
