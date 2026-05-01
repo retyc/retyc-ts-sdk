@@ -9,7 +9,7 @@ import { uploadTransfer } from './transfers/upload.js'
 import { downloadTransfer, resolveSessionKey } from './transfers/download.js'
 import type { SDKConfig } from './types.js'
 import type { DeviceFlowResult, TokenSet } from './auth/types.js'
-import type { UserApiResponse, UserKeyApiResponse } from './user/types.js'
+import type { UploadCapabilitiesApiResponse, UserApiResponse, UserKeyApiResponse, UserQuotaApiResponse } from './user/types.js'
 import type {
   CreateTransferOptions,
   UploadResult,
@@ -40,6 +40,8 @@ export class RetycSDK {
   readonly user: {
     getMe(): Promise<UserApiResponse>
     getActiveKey(): Promise<UserKeyApiResponse>
+    getUploadCapabilities(): Promise<UploadCapabilitiesApiResponse>
+    getUserQuota(): Promise<UserQuotaApiResponse>
   }
 
   readonly transfers: {
@@ -94,6 +96,12 @@ export class RetycSDK {
       getActiveKey(): Promise<UserKeyApiResponse> {
         return self.userApi.getActiveKey()
       },
+      getUploadCapabilities(): Promise<UploadCapabilitiesApiResponse> {
+        return self.userApi.getUploadCapabilities()
+      },
+      getUserQuota(): Promise<UserQuotaApiResponse> {
+        return self.userApi.getUserQuota()
+      },
     }
 
     this.transfers = {
@@ -122,7 +130,7 @@ export type { TokenStore } from './auth/token-store.js'
 export { InMemoryTokenStore, FileTokenStore } from './auth/token-store.js'
 export type { TokenSet, DeviceFlowResult } from './auth/types.js'
 export type { OIDCConfig } from './auth/oidc-discovery.js'
-export type { UserApiResponse, UserKeyApiResponse, UserKeyStatus } from './user/types.js'
+export type { UploadCapabilitiesApiResponse, UserApiResponse, UserKeyApiResponse, UserKeyStatus, UserQuotaApiResponse } from './user/types.js'
 export type {
   CreateTransferOptions,
   UploadFile,

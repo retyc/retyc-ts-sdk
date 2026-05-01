@@ -11,6 +11,29 @@ export interface UserKeyApiResponse {
   deleted_at: string | null
 }
 
+export interface UploadCapabilitiesApiResponse {
+  max_share_size: number
+  max_storage_size: number
+  max_count_share: number | null
+  max_count_dataroom: number | null
+  max_share_expiration_time: number | null
+  max_external_users_dataroom: number | null
+  feature_share_for_me: boolean
+  feature_share_templates: boolean
+  feature_transfer_share_dataroom: boolean
+  feature_customized_branding: boolean
+}
+
+export interface UserQuotaApiResponse {
+  count_share: number
+  max_count_share: number | null
+  count_dataroom: number
+  max_count_dataroom: number | null
+  used_storage: number
+  max_storage: number
+  is_upload_read_only: boolean
+}
+
 export interface UserApiResponse {
   user: {
     id: string
