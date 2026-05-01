@@ -74,6 +74,9 @@ export async function uploadTransfer(
   // Files are processed sequentially to keep peak memory bounded (one file buffered at a time).
   for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
     const file = files[fileIndex]
+    // Sum of declared sizes for all files that have not started uploading yet.
+    // Used to keep totalBytes from hitting the ceiling while there is remaining declared work.
+    const remainingDeclaredBytes = files.slice(fileIndex + 1).reduce((sum, f) => sum + f.size, 0)
 
     // readToBuffer (potentially I/O for Readable) is independent from name/type metadata
     // encryption (CPU). Run them concurrently. registerFile is the only API call here and
@@ -100,7 +103,10 @@ export async function uploadTransfer(
         await api.uploadChunk(registeredFile.id, chunkId, encrypted)
         if (onProgress) {
           uploadedBytes += chunk.length
-          if (uploadedBytes > totalBytes) totalBytes = uploadedBytes
+          // Keep totalBytes >= uploadedBytes + remaining declared bytes so ratio cannot
+          // reach 1 prematurely when a file's actual data exceeds its declared size.
+          const minTotal = uploadedBytes + remainingDeclaredBytes
+          if (minTotal > totalBytes) totalBytes = minTotal
           const ratio = Math.max(lastRatio, totalBytes > 0 ? Math.min(1, uploadedBytes / totalBytes) : 0)
           lastRatio = ratio
           try {
@@ -124,20 +130,28 @@ export async function uploadTransfer(
     } catch {}
   }
 
-  const [
-    session_private_key_enc,
-    message_enc,
-    { ephemeral_public_key, ephemeral_private_key_enc, session_private_key_enc_for_passphrase },
-  ] = await Promise.all([sessionEncPromise, messageEncPromise, passphrasePromise])
+  // If setup crypto or finalization fails after files were uploaded, disable the transfer
+  // so it does not linger as a non-finalized zombie on the server.
+  try {
+    const [
+      session_private_key_enc,
+      message_enc,
+      { ephemeral_public_key, ephemeral_private_key_enc, session_private_key_enc_for_passphrase },
+    ] = await Promise.all([sessionEncPromise, messageEncPromise, passphrasePromise])
 
-  await api.finalizeTransfer(transfer.id, {
-    session_private_key_enc,
-    session_public_key: sessionKey.publicKey,
-    ephemeral_private_key_enc,
-    ephemeral_public_key,
-    session_private_key_enc_for_passphrase,
-    message_enc,
-  })
+    await api.finalizeTransfer(transfer.id, {
+      session_private_key_enc,
+      session_public_key: sessionKey.publicKey,
+      ephemeral_private_key_enc,
+      ephemeral_public_key,
+      session_private_key_enc_for_passphrase,
+      message_enc,
+    })
+  }
+  catch (err) {
+    try { await api.disableTransfer(transfer.id) } catch {}
+    throw err
+  }
 
   return {
     transferId: transfer.id,

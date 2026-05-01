@@ -22,7 +22,9 @@ export interface CreateTransferOptions {
   message?: string
   files: UploadFile[]
   /**
-   * Called after each chunk is successfully uploaded.
+   * Called after each chunk is successfully uploaded, and may be called one final time
+   * after upload completion to ensure `ratio` reaches `1` (for example, for empty files
+   * or when `file.size` is larger than the actual uploaded bytes).
    * Exceptions thrown by this callback are silently swallowed and will not abort the upload.
    */
   onProgress?: (progress: UploadProgress) => void

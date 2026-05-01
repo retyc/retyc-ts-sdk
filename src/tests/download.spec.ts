@@ -9,7 +9,8 @@ import {
   encryptStringWithPassphrase,
   encryptChunk,
 } from '../crypto/age.js'
-import type { TransferApiClient } from '../transfers/transfer-client.js'
+import { TransferApiClient } from '../transfers/transfer-client.js'
+import type { FetchClient } from '../http/client.js'
 
 function makeTransferApiMock(overrides: Partial<TransferApiClient> = {}): TransferApiClient {
   return {
@@ -237,7 +238,7 @@ describe('resolveSessionKey', () => {
   })
 })
 
-describe('getTransfer', () => {
+describe('TransferApiClient.getTransfer', () => {
   const mockTransfer = {
     id: 'transfer-123',
     slug: 'abc123',
@@ -256,37 +257,28 @@ describe('getTransfer', () => {
     session_private_key_enc_for_passphrase: null,
   }
 
-  it('returns the transfer from the API', async () => {
-    const transferApi = makeTransferApiMock({
-      getTransfer: vi.fn().mockResolvedValue(mockTransfer),
-    })
+  function makeClient(response: unknown) {
+    const http = { get: vi.fn().mockResolvedValue(response) } as unknown as FetchClient
+    return { client: new TransferApiClient(http), http }
+  }
 
-    const result = await transferApi.getTransfer('transfer-123')
+  it('calls GET /share/:id and returns the parsed response', async () => {
+    const { client, http } = makeClient(mockTransfer)
 
-    expect(transferApi.getTransfer).toHaveBeenCalledWith('transfer-123')
+    const result = await client.getTransfer('transfer-123')
+
+    expect(http.get).toHaveBeenCalledWith('/share/transfer-123')
     expect(result.id).toBe('transfer-123')
-    expect(result.slug).toBe('abc123')
     expect(result.web_url).toBe('https://retyc.io/t/abc123')
     expect(result.status).toBe('active')
     expect(result.use_passphrase).toBe(false)
   })
 
-  it('returns transfer with passphrase fields when use_passphrase is true', async () => {
-    const transferApi = makeTransferApiMock({
-      getTransfer: vi.fn().mockResolvedValue({
-        ...mockTransfer,
-        use_passphrase: true,
-        ephemeral_public_key: 'age1pq1abc...',
-        ephemeral_private_key_enc: 'AGE ENCRYPTED FILE...',
-        session_private_key_enc_for_passphrase: 'AGE ENCRYPTED FILE...',
-      }),
-    })
+  it('interpolates the transferId into the URL', async () => {
+    const { client, http } = makeClient(mockTransfer)
 
-    const result = await transferApi.getTransfer('transfer-123')
+    await client.getTransfer('xyz-456')
 
-    expect(result.use_passphrase).toBe(true)
-    expect(result.ephemeral_public_key).toBeTruthy()
-    expect(result.ephemeral_private_key_enc).toBeTruthy()
-    expect(result.session_private_key_enc_for_passphrase).toBeTruthy()
+    expect(http.get).toHaveBeenCalledWith('/share/xyz-456')
   })
 })

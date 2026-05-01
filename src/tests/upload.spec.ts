@@ -320,3 +320,33 @@ describe('uploadTransfer — onProgress', () => {
     })).resolves.toBeDefined()
   })
 })
+
+describe('uploadTransfer — error cleanup', () => {
+  it('disables the transfer when finalizeTransfer fails', async () => {
+    const api = makeApiMock({
+      finalizeTransfer: vi.fn().mockRejectedValue(new Error('network error')),
+      disableTransfer: vi.fn().mockResolvedValue(undefined),
+    })
+
+    await expect(uploadTransfer(api, {
+      recipients: [],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })).rejects.toThrow('network error')
+
+    expect(api.disableTransfer).toHaveBeenCalledWith('transfer-123')
+  })
+
+  it('still throws the original error even if disableTransfer also fails', async () => {
+    const api = makeApiMock({
+      finalizeTransfer: vi.fn().mockRejectedValue(new Error('finalize failed')),
+      disableTransfer: vi.fn().mockRejectedValue(new Error('cleanup failed')),
+    })
+
+    await expect(uploadTransfer(api, {
+      recipients: [],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })).rejects.toThrow('finalize failed')
+  })
+})
