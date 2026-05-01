@@ -20,32 +20,52 @@ export async function uploadTransfer(
 ): Promise<UploadResult> {
   const { recipients, title, expires, passphrase, message, files, onProgress } = options
 
-  const transfer = await api.createTransfer({
-    emails: recipients,
-    expires,
-    title: title ?? null,
-    use_passphrase: Boolean(passphrase),
-  })
+  // Run network create (I/O) in parallel with session identity generation (CPU).
+  const [transfer, sessionKey] = await Promise.all([
+    api.createTransfer({
+      emails: recipients,
+      expires,
+      title: title ?? null,
+      use_passphrase: Boolean(passphrase),
+    }),
+    generateIdentity(),
+  ])
 
-  const sessionKey = await generateIdentity()
+  // All setup encryptions are independent once sessionKey and transfer.public_keys are known.
+  // Launch them concurrently — even though age primitives are CPU-bound on the main thread,
+  // their internal awaits (WebCrypto) interleave usefully and the passphrase scrypt branch
+  // overlaps with the recipient-only encryptions. We deliberately let these run in the
+  // background while files upload; they are awaited just before finalizeTransfer.
+  // suppressUnhandled keeps the promise chain alive without altering its rejection
+  // semantics — if these reject during the upload loop the error still surfaces at the
+  // final Promise.all await, but Node won't emit a spurious unhandledRejection warning.
+  const sessionEncPromise = suppressUnhandled(encryptString(sessionKey.privateKey, transfer.public_keys))
+  const messageEncPromise: Promise<string | null> = message
+    ? suppressUnhandled(encryptString(message, [sessionKey.publicKey]))
+    : Promise.resolve(null)
 
-  const session_private_key_enc = await encryptString(sessionKey.privateKey, transfer.public_keys)
-
-  let ephemeral_private_key_enc: string | null = null
-  let ephemeral_public_key: string | null = null
-  let session_private_key_enc_for_passphrase: string | null = null
-
-  if (passphrase) {
-    const ephemeralKey = await generateIdentity()
-    ephemeral_public_key = ephemeralKey.publicKey
-    ephemeral_private_key_enc = await encryptStringWithPassphrase(ephemeralKey.privateKey, passphrase)
-    session_private_key_enc_for_passphrase = await encryptString(sessionKey.privateKey, [ephemeralKey.publicKey])
-  }
-
-  let message_enc: string | null = null
-  if (message) {
-    message_enc = await encryptString(message, [sessionKey.publicKey])
-  }
+  const passphrasePromise: Promise<{
+    ephemeral_public_key: string | null
+    ephemeral_private_key_enc: string | null
+    session_private_key_enc_for_passphrase: string | null
+  }> = passphrase
+    ? suppressUnhandled((async () => {
+        const ephemeralKey = await generateIdentity()
+        const [ephPrivEnc, sessForPass] = await Promise.all([
+          encryptStringWithPassphrase(ephemeralKey.privateKey, passphrase),
+          encryptString(sessionKey.privateKey, [ephemeralKey.publicKey]),
+        ])
+        return {
+          ephemeral_public_key: ephemeralKey.publicKey,
+          ephemeral_private_key_enc: ephPrivEnc,
+          session_private_key_enc_for_passphrase: sessForPass,
+        }
+      })())
+    : Promise.resolve({
+        ephemeral_public_key: null,
+        ephemeral_private_key_enc: null,
+        session_private_key_enc_for_passphrase: null,
+      })
 
   let totalBytes = files.reduce((sum, f) => sum + f.size, 0)
   let uploadedBytes = 0
@@ -54,16 +74,23 @@ export async function uploadTransfer(
   // Files are processed sequentially to keep peak memory bounded (one file buffered at a time).
   for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
     const file = files[fileIndex]
-    const data = await readToBuffer(file.data)
 
-    const name_enc = await encryptString(file.name, [sessionKey.publicKey])
-    const type_enc = await encryptString(file.mimeType, [sessionKey.publicKey])
-
-    const registeredFile = await api.registerFile(transfer.id, {
-      name_enc,
-      type_enc,
-      original_size: file.size,
-    })
+    // readToBuffer (potentially I/O for Readable) is independent from name/type metadata
+    // encryption (CPU). Run them concurrently. registerFile is the only API call here and
+    // depends on name_enc/type_enc; awaited together with the buffer below.
+    const dataPromise = readToBuffer(file.data)
+    const registeredFilePromise = (async () => {
+      const [name_enc, type_enc] = await Promise.all([
+        encryptString(file.name, [sessionKey.publicKey]),
+        encryptString(file.mimeType, [sessionKey.publicKey]),
+      ])
+      return api.registerFile(transfer.id, {
+        name_enc,
+        type_enc,
+        original_size: file.size,
+      })
+    })()
+    const [data, registeredFile] = await Promise.all([dataPromise, registeredFilePromise])
 
     const chunkCount = Math.max(1, Math.ceil(data.length / chunkSize))
     await runWithConcurrency(
@@ -97,6 +124,12 @@ export async function uploadTransfer(
     } catch {}
   }
 
+  const [
+    session_private_key_enc,
+    message_enc,
+    { ephemeral_public_key, ephemeral_private_key_enc, session_private_key_enc_for_passphrase },
+  ] = await Promise.all([sessionEncPromise, messageEncPromise, passphrasePromise])
+
   await api.finalizeTransfer(transfer.id, {
     session_private_key_enc,
     session_public_key: sessionKey.publicKey,
@@ -111,6 +144,14 @@ export async function uploadTransfer(
     slug: transfer.slug,
     webUrl: transfer.web_url,
   }
+}
+
+// Attaches a no-op rejection handler so that a long-lived background promise doesn't
+// trigger Node's unhandledRejection warning while the main flow is busy elsewhere.
+// The original promise is still returned, so a later `await` still observes the rejection.
+function suppressUnhandled<T>(promise: Promise<T>): Promise<T> {
+  promise.catch(() => {})
+  return promise
 }
 
 async function readToBuffer(data: Readable | Buffer | Uint8Array): Promise<Buffer> {
