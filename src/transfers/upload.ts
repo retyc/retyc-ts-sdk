@@ -18,7 +18,7 @@ export async function uploadTransfer(
   chunkSize: number = DEFAULT_CHUNK_SIZE,
   concurrency: number = DEFAULT_CONCURRENCY,
 ): Promise<UploadResult> {
-  const { recipients, title, expires, passphrase, message, files } = options
+  const { recipients, title, expires, passphrase, message, files, onProgress } = options
 
   const transfer = await api.createTransfer({
     emails: recipients,
@@ -47,8 +47,13 @@ export async function uploadTransfer(
     message_enc = await encryptString(message, [sessionKey.publicKey])
   }
 
+  let totalBytes = files.reduce((sum, f) => sum + f.size, 0)
+  let uploadedBytes = 0
+  let lastRatio = 0
+
   // Files are processed sequentially to keep peak memory bounded (one file buffered at a time).
-  for (const file of files) {
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+    const file = files[fileIndex]
     const data = await readToBuffer(file.data)
 
     const name_enc = await encryptString(file.name, [sessionKey.publicKey])
@@ -66,9 +71,30 @@ export async function uploadTransfer(
         const chunk = data.subarray(chunkId * chunkSize, (chunkId + 1) * chunkSize)
         const encrypted = await encryptChunk(chunk, sessionKey.publicKey)
         await api.uploadChunk(registeredFile.id, chunkId, encrypted)
+        if (onProgress) {
+          uploadedBytes += chunk.length
+          if (uploadedBytes > totalBytes) totalBytes = uploadedBytes
+          const ratio = Math.max(lastRatio, totalBytes > 0 ? Math.min(1, uploadedBytes / totalBytes) : 0)
+          lastRatio = ratio
+          try {
+            onProgress({ uploadedBytes, totalBytes, ratio, currentFile: { name: file.name, index: fileIndex, total: files.length } })
+          } catch {}
+        }
       }),
       concurrency,
     )
+  }
+
+  // Guarantee ratio=1 in case of size drift or all-empty-file transfers.
+  if (onProgress && files.length > 0 && lastRatio < 1) {
+    try {
+      onProgress({
+        uploadedBytes,
+        totalBytes,
+        ratio: 1,
+        currentFile: { name: files[files.length - 1].name, index: files.length - 1, total: files.length },
+      })
+    } catch {}
   }
 
   await api.finalizeTransfer(transfer.id, {

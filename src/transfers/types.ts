@@ -1,5 +1,19 @@
 import type { Readable } from 'node:stream'
 
+export interface UploadProgressFile {
+  name: string
+  index: number
+  total: number
+}
+
+export interface UploadProgress {
+  uploadedBytes: number
+  totalBytes: number
+  /** Clamped 0..1, monotonically non-decreasing. */
+  ratio: number
+  currentFile: UploadProgressFile
+}
+
 export interface CreateTransferOptions {
   recipients: string[]
   title?: string
@@ -7,6 +21,11 @@ export interface CreateTransferOptions {
   passphrase?: string
   message?: string
   files: UploadFile[]
+  /**
+   * Called after each chunk is successfully uploaded.
+   * Exceptions thrown by this callback are silently swallowed and will not abort the upload.
+   */
+  onProgress?: (progress: UploadProgress) => void
 }
 
 export interface UploadFile {

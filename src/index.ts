@@ -141,6 +141,8 @@ export type {
   ShareStatus,
   TransferApiResponse,
   UploadFile,
+  UploadProgress,
+  UploadProgressFile,
   UploadResult,
   DownloadOptions,
   DownloadedFile,
