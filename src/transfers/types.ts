@@ -1,5 +1,19 @@
 import type { Readable } from 'node:stream'
 
+export interface UploadProgressFile {
+  name: string
+  index: number
+  total: number
+}
+
+export interface UploadProgress {
+  uploadedBytes: number
+  totalBytes: number
+  /** Clamped 0..1, monotonically non-decreasing. */
+  ratio: number
+  currentFile: UploadProgressFile
+}
+
 export interface CreateTransferOptions {
   recipients: string[]
   title?: string
@@ -7,6 +21,13 @@ export interface CreateTransferOptions {
   passphrase?: string
   message?: string
   files: UploadFile[]
+  /**
+   * Called after each chunk is successfully uploaded, and may be called one final time
+   * after upload completion to ensure `ratio` reaches `1` (for example, for empty files
+   * or when `file.size` is larger than the actual uploaded bytes).
+   * Exceptions thrown by this callback are silently swallowed and will not abort the upload.
+   */
+  onProgress?: (progress: UploadProgress) => void
 }
 
 export interface UploadFile {
@@ -19,6 +40,7 @@ export interface UploadFile {
 export interface UploadResult {
   transferId: string
   slug: string
+  webUrl: string
 }
 
 export interface ResolveSessionKeyOptions {
@@ -44,6 +66,7 @@ export interface DownloadedFile {
 export interface TransferCreateApiResponse {
   id: string
   slug: string
+  web_url: string
   public_keys: string[]
   use_passphrase: boolean
   session_private_key_enc: string | null
@@ -71,11 +94,14 @@ export interface FileRegisterApiResponse {
   original_size: number
   encrypted_size: number
   share_id: string
+  custom_model_name: string | null
 }
 
 export interface TransferDetailsApiResponse {
   id: string
   slug: string
+  web_url: string
+  use_passphrase: boolean
   session_private_key_enc: string | null
   session_public_key: string | null
   ephemeral_private_key_enc: string | null
@@ -91,6 +117,27 @@ export interface FileMetaApiResponse {
   original_size: number
   encrypted_size: number
   share_id: string
+  custom_model_name: string | null
+}
+
+export type ShareStatus = 'pending' | 'expired' | 'active' | 'disabled' | 'error' | 'deleted'
+
+export interface TransferApiResponse {
+  id: string
+  slug: string
+  web_url: string
+  use_passphrase: boolean
+  status: ShareStatus
+  is_custom_share: boolean
+  title: string | null
+  message_enc: string | null
+  created_at: string
+  deleted_at: string | null
+  session_public_key: string | null
+  session_private_key_enc: string | null
+  ephemeral_public_key: string | null
+  ephemeral_private_key_enc: string | null
+  session_private_key_enc_for_passphrase: string | null
 }
 
 export interface PageApiResponse<T> {
