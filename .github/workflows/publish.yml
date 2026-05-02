@@ -39,6 +39,13 @@ jobs:
           TAG_VERSION=${TAG_NAME#v}
           [ "$PKG_VERSION" = "$TAG_VERSION" ] || { echo "Mismatch: package.json=$PKG_VERSION tag=$TAG_VERSION"; exit 1; }
 
-      - run: npm publish --access public
+      - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if echo "$PKG_VERSION" | grep -qE '-(alpha|beta|rc)'; then
+            npm publish --access public --tag beta
+          else
+            npm publish --access public
+          fi
