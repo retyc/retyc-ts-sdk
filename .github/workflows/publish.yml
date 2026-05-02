@@ -44,7 +44,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          if echo "$PKG_VERSION" | grep -qE '-(alpha|beta|rc)'; then
+          if echo "$PKG_VERSION" | grep -qE '(alpha|beta|rc)'; then
             npm publish --access public --tag beta
           else
             npm publish --access public
