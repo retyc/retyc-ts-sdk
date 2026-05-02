@@ -1,6 +1,6 @@
 {
   "name": "@retyc/sdk",
-  "version": "1.0.2-beta.1",
+  "version": "1.0.2-rc.1",
   "description": "TypeScript SDK for the Retyc API — OIDC auth + E2E encrypted transfers",
   "type": "module",
   "engines": {
