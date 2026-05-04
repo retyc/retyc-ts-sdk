@@ -1,7 +1,31 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { uploadTransfer } from '../transfers/upload.js'
+import { generateIdentity, decryptString } from '../crypto/age.js'
 import type { TransferApiClient } from '../transfers/transfer-client.js'
+import type { UserApiClient } from '../user/user-client.js'
 import type { UploadProgress } from '../transfers/types.js'
+
+const DEFAULT_OWN_EMAIL = 'me@example.com'
+
+let ownIdentity: { publicKey: string; privateKey: string }
+
+beforeAll(async () => {
+  ownIdentity = await generateIdentity()
+})
+
+function makeUserApiMock(overrides: Partial<UserApiClient> = {}): UserApiClient {
+  return {
+    getMe: vi.fn().mockResolvedValue({
+      user: { email: DEFAULT_OWN_EMAIL },
+    }),
+    getActiveKey: vi.fn().mockResolvedValue({
+      public_key: ownIdentity.publicKey,
+    }),
+    getUploadCapabilities: vi.fn(),
+    getUserQuota: vi.fn(),
+    ...overrides,
+  } as unknown as UserApiClient
+}
 
 function makeApiMock(overrides: Partial<TransferApiClient> = {}): TransferApiClient {
   return {
@@ -43,8 +67,9 @@ function makeApiMock(overrides: Partial<TransferApiClient> = {}): TransferApiCli
 describe('uploadTransfer', () => {
   it('creates a transfer and finalizes it', async () => {
     const api = makeApiMock()
+    const userApi = makeUserApiMock()
 
-    const result = await uploadTransfer(api, {
+    const result = await uploadTransfer(api, userApi, {
       recipients: ['alice@example.com'],
       expires: 3600,
       files: [{ name: 'test.txt', mimeType: 'text/plain', data: Buffer.from('hello'), size: 5 }],
@@ -66,8 +91,9 @@ describe('uploadTransfer', () => {
 
   it('includes ephemeral key fields when passphrase is provided', async () => {
     const api = makeApiMock()
+    const userApi = makeUserApiMock()
 
-    await uploadTransfer(api, {
+    await uploadTransfer(api, userApi, {
       recipients: [],
       expires: 7200,
       passphrase: 'my-secret',
@@ -94,7 +120,7 @@ describe('uploadTransfer', () => {
       }),
     })
 
-    await uploadTransfer(api, {
+    await uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'big.bin', mimeType: 'application/octet-stream', data: Buffer.alloc(100, 0x42), size: 100 }],
@@ -105,6 +131,137 @@ describe('uploadTransfer', () => {
     expect(calls[0][1]).toBe(0)
     expect(calls[1][1]).toBe(1)
     expect(calls[2][1]).toBe(2)
+  })
+})
+
+describe('uploadTransfer — encryptWithMyKey', () => {
+  it('by default, fetches the caller key and wraps the session key for it', async () => {
+    const api = makeApiMock()
+    const userApi = makeUserApiMock()
+
+    await uploadTransfer(api, userApi, {
+      recipients: ['alice@example.com'],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })
+
+    expect(userApi.getMe).toHaveBeenCalledOnce()
+    expect(userApi.getActiveKey).toHaveBeenCalledOnce()
+
+    const finalizeCall = (api.finalizeTransfer as ReturnType<typeof vi.fn>).mock.calls[0][1]
+    // The caller's identity must be able to decrypt session_private_key_enc — that is the
+    // whole point: the sender can later decrypt their own transfer in account mode.
+    const sessionPrivKey = await decryptString(finalizeCall.session_private_key_enc, ownIdentity.privateKey)
+    expect(typeof sessionPrivKey).toBe('string')
+    expect(sessionPrivKey.length).toBeGreaterThan(0)
+  })
+
+  it('silently filters the caller email out of recipients before creating the share', async () => {
+    const api = makeApiMock()
+    const userApi = makeUserApiMock()
+
+    await uploadTransfer(api, userApi, {
+      recipients: ['alice@example.com', DEFAULT_OWN_EMAIL, 'bob@example.com'],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })
+
+    expect(api.createTransfer).toHaveBeenCalledWith({
+      emails: ['alice@example.com', 'bob@example.com'],
+      expires: 0,
+      title: null,
+      use_passphrase: false,
+    })
+  })
+
+  it('filters the caller email case-insensitively', async () => {
+    const api = makeApiMock()
+    const userApi = makeUserApiMock()
+
+    await uploadTransfer(api, userApi, {
+      recipients: ['ME@Example.COM'],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })
+
+    expect(api.createTransfer).toHaveBeenCalledWith({
+      emails: [],
+      expires: 0,
+      title: null,
+      use_passphrase: false,
+    })
+  })
+
+  it('does not duplicate the caller key when the API already returned it', async () => {
+    // Simulate the API resolving one of the recipient emails to the same key as the caller's
+    // active key (e.g. a shared service mailbox). The session private key must still be
+    // encryptable, and the recipient list passed to age must not contain duplicates that
+    // would make age reject the encryption.
+    const api = makeApiMock({
+      createTransfer: vi.fn().mockResolvedValue({
+        id: 'transfer-123',
+        slug: 'abc123',
+        web_url: 'https://retyc.io/t/abc123',
+        public_keys: [ownIdentity.publicKey],
+        use_passphrase: false,
+        session_private_key_enc: null,
+        session_public_key: null,
+        ephemeral_private_key_enc: null,
+        ephemeral_public_key: null,
+        session_private_key_enc_for_passphrase: null,
+        expires_at: null,
+      }),
+    })
+    const userApi = makeUserApiMock()
+
+    await expect(uploadTransfer(api, userApi, {
+      recipients: ['alice@example.com'],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })).resolves.toBeDefined()
+
+    const finalizeCall = (api.finalizeTransfer as ReturnType<typeof vi.fn>).mock.calls[0][1]
+    const sessionPrivKey = await decryptString(finalizeCall.session_private_key_enc, ownIdentity.privateKey)
+    expect(typeof sessionPrivKey).toBe('string')
+  })
+
+  it('skips own-key wrapping but still filters caller email when encryptWithMyKey is false', async () => {
+    // The API rejects shares with the caller as recipient, so the email filter must run
+    // unconditionally. Only the active-key fetch (and own-key wrapping) is opt-out.
+    const api = makeApiMock()
+    const userApi = makeUserApiMock()
+
+    await uploadTransfer(api, userApi, {
+      recipients: ['alice@example.com', DEFAULT_OWN_EMAIL],
+      expires: 0,
+      encryptWithMyKey: false,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })
+
+    expect(userApi.getMe).toHaveBeenCalledOnce()
+    expect(userApi.getActiveKey).not.toHaveBeenCalled()
+    expect(api.createTransfer).toHaveBeenCalledWith({
+      emails: ['alice@example.com'],
+      expires: 0,
+      title: null,
+      use_passphrase: false,
+    })
+  })
+
+  it('throws when the caller has no active key and encryptWithMyKey is on (default)', async () => {
+    const api = makeApiMock()
+    const userApi = makeUserApiMock({
+      getActiveKey: vi.fn().mockRejectedValue(new Error('no active key')),
+    } as Partial<UserApiClient>)
+
+    await expect(uploadTransfer(api, userApi, {
+      recipients: ['alice@example.com'],
+      expires: 0,
+      files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
+    })).rejects.toThrow('no active key')
+
+    // The share must not have been created when the precondition failed.
+    expect(api.createTransfer).not.toHaveBeenCalled()
   })
 })
 
@@ -125,7 +282,7 @@ describe('uploadTransfer — onProgress', () => {
     })
 
     const events: UploadProgress[] = []
-    await uploadTransfer(api, {
+    await uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.bin', mimeType: 'application/octet-stream', data: Buffer.alloc(100, 0x01), size: 100 }],
@@ -161,7 +318,7 @@ describe('uploadTransfer — onProgress', () => {
     })
 
     const events: UploadProgress[] = []
-    await uploadTransfer(api, {
+    await uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [
@@ -200,7 +357,7 @@ describe('uploadTransfer — onProgress', () => {
     })
 
     const events: UploadProgress[] = []
-    await uploadTransfer(api, {
+    await uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.bin', mimeType: 'application/octet-stream', data: Buffer.alloc(100, 0x01), size: 100 }],
@@ -236,7 +393,7 @@ describe('uploadTransfer — onProgress', () => {
     })
 
     const events: UploadProgress[] = []
-    await uploadTransfer(api, {
+    await uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [
@@ -272,7 +429,7 @@ describe('uploadTransfer — onProgress', () => {
     })
 
     const events: UploadProgress[] = []
-    await uploadTransfer(api, {
+    await uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.bin', mimeType: 'application/octet-stream', data: Buffer.alloc(50), size: 100 }],
@@ -285,7 +442,7 @@ describe('uploadTransfer — onProgress', () => {
   it('emits guaranteed ratio=1 for all-empty-file transfers', async () => {
     // size=0, data=empty → chunk.length=0 → ratio stays 0 → guaranteed 1.0 fires
     const events: UploadProgress[] = []
-    await uploadTransfer(makeApiMock(), {
+    await uploadTransfer(makeApiMock(), makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'empty.txt', mimeType: 'text/plain', data: Buffer.alloc(0), size: 0 }],
@@ -298,7 +455,7 @@ describe('uploadTransfer — onProgress', () => {
   it('swallows callback errors and completes the upload', async () => {
     let callCount = 0
 
-    const result = await uploadTransfer(makeApiMock(), {
+    const result = await uploadTransfer(makeApiMock(), makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
@@ -313,7 +470,7 @@ describe('uploadTransfer — onProgress', () => {
   })
 
   it('works without onProgress callback', async () => {
-    await expect(uploadTransfer(makeApiMock(), {
+    await expect(uploadTransfer(makeApiMock(), makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
@@ -328,7 +485,7 @@ describe('uploadTransfer — error cleanup', () => {
       disableTransfer: vi.fn().mockResolvedValue(undefined),
     })
 
-    await expect(uploadTransfer(api, {
+    await expect(uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],
@@ -343,7 +500,7 @@ describe('uploadTransfer — error cleanup', () => {
       disableTransfer: vi.fn().mockRejectedValue(new Error('cleanup failed')),
     })
 
-    await expect(uploadTransfer(api, {
+    await expect(uploadTransfer(api, makeUserApiMock(), {
       recipients: [],
       expires: 0,
       files: [{ name: 'f.txt', mimeType: 'text/plain', data: Buffer.from('hi'), size: 2 }],

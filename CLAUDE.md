@@ -44,13 +44,13 @@ Internal modules:
 - **Identity generation**: `generateIdentity()` calls `generateHybridIdentity()` from `age-encryption` — produces a post-quantum hybrid age keypair (`age1pq1...`). Mirrors `generateSessionIdentity` in the frontend.
 - **String encryption (`encryptString` / `decryptString`)**: armored output (`AGE ENCRYPTED FILE` PEM-like wrapper). Used for metadata (`name_enc`, `type_enc`, `message_enc`) and key wrapping (`session_private_key_enc`, `ephemeral_private_key_enc`, `session_private_key_enc_for_passphrase`). Mirrors `encryptStringWithRecipients` / `encryptStringWithPassphrase`.
 - **Chunk encryption (`encryptChunk` / `decryptChunk`)**: raw bytes (no armor). Recipient-only (no scrypt). Mirrors `encryptChunkWithRecipient` / `decryptChunkWithIdentity`. Each file chunk is independently encrypted with the transfer's `session_public_key`.
-- **Recipient list during upload**: the API returns `public_keys` from `POST /share` (one per recipient email that resolves to a registered user). The SDK encrypts the session private key for that exact list — never adds the sender's own key automatically. The frontend supports an `encryptWithMyKey` toggle that pushes the user's own key into that list before calling the API; the SDK does not (callers can pass their own public key as a recipient if they want this).
+- **Recipient list during upload**: the API returns `public_keys` from `POST /share` (one per recipient email that resolves to a registered user). The SDK encrypts the session private key for that list, plus — by default — the caller's own active public key (`encryptWithMyKey: true`, mirrors the frontend toggle of the same name). The caller's email is **always** stripped from `recipients` before `POST /share` (case-insensitive); the API rejects shares whose recipient list includes the caller, so this filter is unconditional and runs even when `encryptWithMyKey: false`. `encryptWithMyKey: false` only opts out of fetching `getActiveKey()` and wrapping the session key for the caller — useful for service accounts with no active key.
 
 ## Upload pipeline (must match `use-upload-form.ts:performUpload`)
 
-1. `POST /share` with `{ emails, expires, title, use_passphrase }` → returns `id`, `slug`, `public_keys`.
-2. Generate session identity (`generateIdentity`).
-3. Encrypt `session_identity.privateKey` for `transfer.public_keys` → `session_private_key_enc`.
+1. In parallel: `userApi.getMe()` (always) + `userApi.getActiveKey()` (only when `encryptWithMyKey !== false`, default) + `generateIdentity()` (session identity, CPU-bound). All three are independent.
+2. Strip the caller's email from `recipients` (case-insensitive). `POST /share` with `{ emails, expires, title, use_passphrase }` → returns `id`, `slug`, `public_keys`.
+3. Encrypt `session_identity.privateKey` for `transfer.public_keys` (plus the caller's active public key when `encryptWithMyKey` is on, deduped) → `session_private_key_enc`.
 4. If a passphrase is set:
    - Generate an ephemeral identity.
    - `ephemeral_private_key_enc = encryptStringWithPassphrase(ephemeral.privateKey, passphrase)` (uses scrypt).
@@ -82,7 +82,7 @@ The frontend runs in the browser; the SDK runs in Node.js. These deltas are inte
 - **No progress callbacks yet**. The frontend tracks per-chunk progress for UI; the SDK is a fire-and-forget API. Add this only if explicitly requested.
 - **No streaming chunk upload through the API client**. The SDK reads each file fully into a `Buffer` before chunking. Streaming Readable input is accepted but is consumed fully via `readToBuffer` first. This bounds peak memory to one file at a time, not one chunk.
 - **Folder uploads (`webkitRelativePath`)**. Browser-only concept; the SDK uses the literal `name` field of `UploadFile`.
-- **No `encryptWithMyKey` shortcut**. The SDK does not know the caller's public key — pass it explicitly via `recipients` if needed.
+- **`encryptWithMyKey` default-on**. The SDK fetches the caller's active key automatically (default `true`); the frontend exposes the same toggle but defaults to off in some flows. Callers who don't want this — or are running as a service account with no active key — must pass `encryptWithMyKey: false`.
 
 ## API client conventions
 

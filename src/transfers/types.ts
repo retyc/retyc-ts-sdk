@@ -22,6 +22,15 @@ export interface CreateTransferOptions {
   message?: string
   files: UploadFile[]
   /**
+   * When true (default), the SDK fetches the caller's active public key and adds it to the
+   * encryption recipients of the session private key, so the sender can later decrypt their
+   * own transfer in account mode. Mirrors the frontend's `encryptWithMyKey` toggle.
+   * If the caller's email appears in `recipients`, it is silently dropped before the share
+   * is created (a user cannot be a recipient of their own transfer).
+   * Set to false to opt out — useful when the caller is a service account with no key.
+   */
+  encryptWithMyKey?: boolean
+  /**
    * Called after each chunk is successfully uploaded, and may be called one final time
    * after upload completion to ensure `ratio` reaches `1` (for example, for empty files
    * or when `file.size` is larger than the actual uploaded bytes).

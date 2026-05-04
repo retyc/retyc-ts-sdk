@@ -114,7 +114,7 @@ export class RetycSDK {
         return resolveSessionKey(self.transferApi, transferId, options)
       },
       upload(options: CreateTransferOptions): Promise<UploadResult> {
-        return uploadTransfer(self.transferApi, options, self.chunkSize, self.uploadConcurrency)
+        return uploadTransfer(self.transferApi, self.userApi, options, self.chunkSize, self.uploadConcurrency)
       },
       download(transferId: string, sessionKey: string, options?: DownloadOptions): Promise<DownloadedFile[]> {
         return downloadTransfer(self.transferApi, transferId, sessionKey, options ?? {}, self.downloadConcurrency)
