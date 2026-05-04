@@ -7,6 +7,7 @@ import {
 } from '../crypto/age.js'
 import { runWithConcurrency } from '../utils/concurrency.js'
 import type { TransferApiClient } from './transfer-client.js'
+import type { UserApiClient } from '../user/user-client.js'
 import type { CreateTransferOptions, UploadResult } from './types.js'
 
 const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024
@@ -14,22 +15,41 @@ const DEFAULT_CONCURRENCY = 4
 
 export async function uploadTransfer(
   api: TransferApiClient,
+  userApi: UserApiClient,
   options: CreateTransferOptions,
   chunkSize: number = DEFAULT_CHUNK_SIZE,
   concurrency: number = DEFAULT_CONCURRENCY,
 ): Promise<UploadResult> {
-  const { recipients, title, expires, passphrase, message, files, onProgress } = options
+  const { recipients, title, expires, passphrase, message, files, onProgress, encryptWithMyKey } = options
+  const includeMyKey = encryptWithMyKey !== false
 
-  // Run network create (I/O) in parallel with session identity generation (CPU).
-  const [transfer, sessionKey] = await Promise.all([
-    api.createTransfer({
-      emails: recipients,
-      expires,
-      title: title ?? null,
-      use_passphrase: Boolean(passphrase),
-    }),
+  // The API rejects shares whose recipient list includes the caller, so `getMe()` is
+  // always needed to strip the caller's email — even when `encryptWithMyKey` is off.
+  // `getActiveKey()` is only needed when wrapping the session key for the caller.
+  // All three are independent and run in parallel.
+  const [me, activeKey, sessionKey] = await Promise.all([
+    userApi.getMe(),
+    includeMyKey ? userApi.getActiveKey() : Promise.resolve(null),
     generateIdentity(),
   ])
+
+  const myEmail = me.user.email
+  const myPublicKey: string | null = activeKey?.public_key ?? null
+
+  const filteredEmails = recipients.filter(e => e.toLowerCase() !== myEmail.toLowerCase())
+
+  const transfer = await api.createTransfer({
+    emails: filteredEmails,
+    expires,
+    title: title ?? null,
+    use_passphrase: Boolean(passphrase),
+  })
+
+  // Add the caller's public key to the recipient list, deduplicating in case the API
+  // already resolved one of the requested emails to the same key.
+  const sessionRecipients = myPublicKey && !transfer.public_keys.includes(myPublicKey)
+    ? [...transfer.public_keys, myPublicKey]
+    : transfer.public_keys
 
   // All setup encryptions are independent once sessionKey and transfer.public_keys are known.
   // Launch them concurrently — even though age primitives are CPU-bound on the main thread,
@@ -39,7 +59,7 @@ export async function uploadTransfer(
   // suppressUnhandled keeps the promise chain alive without altering its rejection
   // semantics — if these reject during the upload loop the error still surfaces at the
   // final Promise.all await, but Node won't emit a spurious unhandledRejection warning.
-  const sessionEncPromise = suppressUnhandled(encryptString(sessionKey.privateKey, transfer.public_keys))
+  const sessionEncPromise = suppressUnhandled(encryptString(sessionKey.privateKey, sessionRecipients))
   const messageEncPromise: Promise<string | null> = message
     ? suppressUnhandled(encryptString(message, [sessionKey.publicKey]))
     : Promise.resolve(null)
