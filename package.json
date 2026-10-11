@@ -4,7 +4,7 @@
   "description": "TypeScript SDK for the Retyc API — OIDC auth + E2E encrypted transfers",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "exports": {
     ".": {
