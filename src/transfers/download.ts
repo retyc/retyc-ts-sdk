@@ -1,4 +1,5 @@
-import { createWriteStream, mkdirSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import path from 'node:path'
 import {
   decryptString,
@@ -51,6 +52,8 @@ export async function downloadTransfer(
   concurrency: number = DEFAULT_CONCURRENCY,
 ): Promise<DownloadedFile[]> {
   const { outputPath } = options
+  const batchSize = Math.floor(concurrency)
+  if (!(batchSize >= 1)) throw new RangeError(`concurrency must be >= 1, got ${concurrency}`)
 
   const files = await transferApi.getTransferFiles(transferId)
 
@@ -65,23 +68,39 @@ export async function downloadTransfer(
     const name = await decryptString(file.name_enc, sessionKey)
     const mimeType = await decryptString(file.type_enc, sessionKey)
 
-    const chunks = await runWithConcurrency(
-      Array.from({ length: file.chunk_count }, (_, chunkId) => async () => {
-        const encryptedChunk = await transferApi.downloadChunk(file.id, chunkId)
+    const downloadChunks = (from: number, to: number): Promise<Buffer[]> => runWithConcurrency(
+      Array.from({ length: to - from }, (_, i) => async () => {
+        const encryptedChunk = await transferApi.downloadChunk(file.id, from + i)
         const decrypted = await decryptChunk(encryptedChunk, sessionKey)
-        return Buffer.from(decrypted)
+        return Buffer.from(decrypted.buffer, decrypted.byteOffset, decrypted.byteLength)
       }),
-      concurrency,
+      batchSize,
     )
 
     if (outputPath !== undefined) {
-      assertSafePath(name)
-      const destination = path.join(outputPath, name)
-      const totalSize = await writeChunksToFile(destination, chunks)
+      const destination = resolveSafeDestination(outputPath, name)
+      mkdirSync(path.dirname(destination), { recursive: true })
+
+      // Chunks are fetched one batch at a time and flushed in order, so peak memory is
+      // `concurrency` chunks rather than the whole file.
+      const handle = await open(destination, 'w')
+      let totalSize = 0
+      try {
+        for (let from = 0; from < file.chunk_count; from += batchSize) {
+          const batch = await downloadChunks(from, Math.min(from + batchSize, file.chunk_count))
+          for (const chunk of batch) {
+            await handle.writeFile(chunk)
+            totalSize += chunk.length
+          }
+        }
+      }
+      finally {
+        await handle.close()
+      }
       results.push({ name, mimeType, size: totalSize, data: null })
     }
     else {
-      const data = Buffer.concat(chunks)
+      const data = Buffer.concat(await downloadChunks(0, file.chunk_count))
       results.push({ name, mimeType, size: data.length, data })
     }
   }
@@ -90,34 +109,26 @@ export async function downloadTransfer(
 }
 
 // Mirrors frontend/app/composables/use-download.ts:assertSafePath — guards against path traversal
-// when filenames are decrypted from untrusted ciphertext.
-function assertSafePath(name: string): void {
-  if (name.includes('..') || name.startsWith('/')) {
+// when filenames are decrypted from untrusted ciphertext. Names may carry sub-directories
+// (folder uploads from the web app), which are recreated under outputPath. Backslashes are
+// treated as separators and the resolved path is re-checked so the guard also holds on Windows.
+function resolveSafeDestination(outputPath: string, name: string): string {
+  const segments = name.split(/[\\/]/)
+  const root = path.resolve(outputPath)
+  const destination = path.resolve(root, name)
+  const relative = path.relative(root, destination)
+  if (
+    name.length === 0
+    || name.includes('\0')
+    || /^[\\/]/.test(name)
+    || path.isAbsolute(name)
+    || segments.some(seg => seg === '..')
+    || relative === ''
+    || relative === '..'
+    || relative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relative)
+  ) {
     throw new Error(`Unsafe file name: ${name}`)
   }
-}
-
-async function writeChunksToFile(destination: string, chunks: Buffer[]): Promise<number> {
-  const stream = createWriteStream(destination)
-  let total = 0
-
-  try {
-    for (const chunk of chunks) {
-      total += chunk.length
-      if (!stream.write(chunk)) {
-        await new Promise<void>((resolve) => stream.once('drain', () => resolve()))
-      }
-    }
-  }
-  catch (err) {
-    stream.destroy()
-    throw err
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    stream.once('error', reject)
-    stream.end(() => resolve())
-  })
-
-  return total
+  return destination
 }

@@ -139,6 +139,68 @@ describe('downloadTransfer', () => {
       rmSync(outputPath, { recursive: true, force: true })
     }
   }, 20000)
+
+  it('rejects unsafe file names before downloading any chunk', async () => {
+    const sessionKey = await generateIdentity()
+    const typeEnc = await encryptString('text/plain', [sessionKey.publicKey])
+    const outputPath = mkdtempSync(path.join(tmpdir(), 'retyc-download-'))
+
+    try {
+      for (const name of ['/etc/passwd', 'a/../../b.txt', '..\\escape.txt', '..']) {
+        const downloadChunk = vi.fn()
+        const transferApi = makeTransferApiMock({
+          downloadChunk,
+          getTransferFiles: vi.fn().mockResolvedValue([{
+            id: 'file-001',
+            name_enc: await encryptString(name, [sessionKey.publicKey]),
+            type_enc: typeEnc,
+            chunk_count: 1,
+          }]),
+        })
+
+        await expect(downloadTransfer(transferApi, 'transfer-123', sessionKey.privateKey, {
+          outputPath,
+        })).rejects.toThrow('Unsafe file name')
+        expect(downloadChunk).not.toHaveBeenCalled()
+      }
+    }
+    finally {
+      rmSync(outputPath, { recursive: true, force: true })
+    }
+  }, 20000)
+
+  it('writes multi-chunk files in order and recreates sub-directories under outputPath', async () => {
+    const sessionKey = await generateIdentity()
+    const parts = ['first-', 'second-', 'third-', 'fourth-', 'fifth']
+    const encryptedChunks = await Promise.all(
+      parts.map(p => encryptChunk(new Uint8Array(Buffer.from(p)), sessionKey.publicKey)),
+    )
+
+    const transferApi = makeTransferApiMock({
+      // Later chunks resolve first, so ordering cannot come from arrival time.
+      downloadChunk: vi.fn().mockImplementation((_fileId: string, chunkId: number) =>
+        new Promise(resolve => setTimeout(() => resolve(encryptedChunks[chunkId]), (parts.length - chunkId) * 5))),
+      getTransferFiles: vi.fn().mockResolvedValue([{
+        id: 'file-001',
+        name_enc: await encryptString('folder/sub/report..v2.txt', [sessionKey.publicKey]),
+        type_enc: await encryptString('text/plain', [sessionKey.publicKey]),
+        chunk_count: parts.length,
+      }]),
+    })
+
+    const outputPath = mkdtempSync(path.join(tmpdir(), 'retyc-download-'))
+
+    try {
+      const files = await downloadTransfer(transferApi, 'transfer-123', sessionKey.privateKey, { outputPath }, 2)
+
+      const expected = Buffer.from(parts.join(''))
+      expect(files[0].size).toBe(expected.length)
+      expect(readFileSync(path.join(outputPath, 'folder', 'sub', 'report..v2.txt'))).toEqual(expected)
+    }
+    finally {
+      rmSync(outputPath, { recursive: true, force: true })
+    }
+  }, 20000)
 })
 
 describe('resolveSessionKey', () => {
