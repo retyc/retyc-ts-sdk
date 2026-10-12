@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -23,13 +24,13 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
-          cache: npm
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false  # never use caching in release builds
 
       - run: npm ci
 
-      - run: npm run build
+      - run: npm run build --if-present
 
       - name: Verify tag matches package.json version
         env:
@@ -40,8 +41,6 @@ jobs:
           [ "$PKG_VERSION" = "$TAG_VERSION" ] || { echo "Mismatch: package.json=$PKG_VERSION tag=$TAG_VERSION"; exit 1; }
 
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           if echo "$PKG_VERSION" | grep -qE '(alpha|beta|rc)'; then
