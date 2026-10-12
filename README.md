@@ -37,7 +37,8 @@ yarn add @retyc/sdk
 ### Initialize the client
 
 ```ts
-import { RetycSDK, FileTokenStore } from '@retyc/sdk'
+import { RetycSDK } from '@retyc/sdk'
+import { FileTokenStore } from '@retyc/sdk/node'
 
 const sdk = new RetycSDK({
   apiUrl: 'https://api.retyc.com',
@@ -278,9 +279,15 @@ await sdk.transfers.forceDelete('transfer-id')
 | Class | Description |
 | --- | --- |
 | `InMemoryTokenStore` | Default. Tokens are lost when the process exits. |
-| `FileTokenStore(path)` | Persists tokens to a JSON file on disk, readable by the current OS user only (`0600`). Not encrypted at rest. |
+| `FileTokenStore(path)` | Node.js only, imported from `@retyc/sdk/node`. Persists tokens to a JSON file on disk, readable by the current OS user only (`0600`). Not encrypted at rest. |
 
-You can implement the `TokenStore` interface to use any custom storage backend (keychain, database, etc.).
+You can implement the `TokenStore` interface (`get`, `set`, `clear`) to use any custom storage backend (keychain, database, browser extension storage, etc.). `isTokenSet(value)` validates data read back from your storage.
+
+When several contexts share one store (tabs, iframes, workers), implement the optional `withLock(fn)` method — for example on top of `navigator.locks` — so that only one of them spends the refresh token; the others reuse the tokens it stored.
+
+Authentication failures throw a `RetycAuthError` whose `code` is `not_authenticated` (no stored session), `session_expired` (refresh token rejected, session cleared) or `unauthorized` (the API still answered `401` after a token refresh).
+
+Bundlers targeting the browser resolve `@retyc/sdk` to a build with no dependency on Node.js built-in modules (`browser` export condition). `download()` with `outputPath` is Node.js only and throws in that build; a global `Buffer` is still required.
 
 ---
 
