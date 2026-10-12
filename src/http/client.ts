@@ -33,7 +33,7 @@ export class FetchClient {
     })
 
     if (response.status === 401) {
-      const refreshed = await this.tokenManager.refresh(token.refreshToken)
+      const refreshed = await this.tokenManager.refreshAfterUnauthorized(token)
       response = await fetch(url, {
         method: 'POST',
         headers: { Authorization: `${refreshed.tokenType} ${refreshed.accessToken}` },
@@ -52,7 +52,7 @@ export class FetchClient {
     })
 
     if (response.status === 401) {
-      const refreshed = await this.tokenManager.refresh(token.refreshToken)
+      const refreshed = await this.tokenManager.refreshAfterUnauthorized(token)
       response = await fetch(this.buildUrl(path), {
         headers: { Authorization: `${refreshed.tokenType} ${refreshed.accessToken}` },
       })
@@ -86,7 +86,7 @@ export class FetchClient {
     })
 
     if (response.status === 401) {
-      const refreshed = await this.tokenManager.refresh(token.refreshToken)
+      const refreshed = await this.tokenManager.refreshAfterUnauthorized(token)
       response = await fetch(url, {
         method,
         headers: { ...headers, Authorization: `${refreshed.tokenType} ${refreshed.accessToken}` },
@@ -103,8 +103,12 @@ export class FetchClient {
   private async throwApiError(response: Response): Promise<never> {
     let message = `API error ${response.status}`
     try {
-      const body = await response.json() as { detail?: string }
-      if (body.detail) message = `${message}: ${body.detail}`
+      const body = await response.json() as { detail?: unknown }
+      if (body.detail) {
+        // Validation errors (422) carry a structured detail, not a string.
+        const detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+        message = `${message}: ${detail}`
+      }
     } catch { /* non-JSON body */ }
     throw new Error(message)
   }

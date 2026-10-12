@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
+import { chmodSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { TokenSet } from './types.js'
 
@@ -37,8 +37,11 @@ export class FileTokenStore implements TokenStore {
   }
 
   async set(tokens: TokenSet): Promise<void> {
-    mkdirSync(dirname(this.filePath), { recursive: true })
-    writeFileSync(this.filePath, JSON.stringify(tokens, null, 2), 'utf-8')
+    // Tokens are bearer credentials: keep the file (and any directory we create) owner-only.
+    // `mode` only applies on creation, so chmod also tightens a file written by an older version.
+    mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 })
+    writeFileSync(this.filePath, JSON.stringify(tokens, null, 2), { encoding: 'utf-8', mode: 0o600 })
+    chmodSync(this.filePath, 0o600)
   }
 
   async clear(): Promise<void> {

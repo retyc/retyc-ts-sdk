@@ -29,7 +29,10 @@ export async function fetchOIDCConfig(apiUrl: string): Promise<OIDCConfig> {
     const body = await configResponse.text().catch(() => '')
     throw new Error(`Failed to fetch public OIDC config: ${configResponse.status} ${body}`)
   }
-  const pubConfig = await configResponse.json() as PublicLoginConfig
+  const pubConfig = await configResponse.json() as Partial<PublicLoginConfig>
+  if (!pubConfig.issuer || !pubConfig.client_id) {
+    throw new Error('Failed to fetch public OIDC config: missing issuer or client_id.')
+  }
 
   const discoveryUrl = pubConfig.issuer.replace(/\/$/, '') + '/.well-known/openid-configuration'
   const discoveryResponse = await fetch(discoveryUrl, {
@@ -39,12 +42,16 @@ export async function fetchOIDCConfig(apiUrl: string): Promise<OIDCConfig> {
     const body = await discoveryResponse.text().catch(() => '')
     throw new Error(`OIDC discovery failed: ${discoveryResponse.status} ${body}`)
   }
-  const discovery = await discoveryResponse.json() as OIDCDiscovery
+  const discovery = await discoveryResponse.json() as Partial<OIDCDiscovery>
+
+  if (!discovery.device_authorization_endpoint || !discovery.token_endpoint) {
+    throw new Error('OIDC discovery failed: the identity provider does not expose the device authorization grant.')
+  }
 
   return {
     issuer: pubConfig.issuer,
     clientId: pubConfig.client_id,
-    scopes: pubConfig.scopes,
+    scopes: pubConfig.scopes ?? [],
     deviceAuthUrl: discovery.device_authorization_endpoint,
     tokenUrl: discovery.token_endpoint,
     endSessionUrl: discovery.end_session_endpoint,

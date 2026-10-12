@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { InMemoryTokenStore } from '../auth/token-store.js'
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { FileTokenStore, InMemoryTokenStore } from '../auth/token-store.js'
 import { TokenManager } from '../auth/token-manager.js'
 import type { OIDCConfig } from '../auth/oidc-discovery.js'
 
@@ -87,6 +90,105 @@ describe('TokenManager', () => {
     const after = Math.floor(Date.now() / 1000)
     expect(result.expiresAt).toBeGreaterThanOrEqual(before + 3600)
     expect(result.expiresAt).toBeLessThanOrEqual(after + 3600)
+  })
+
+  it('parseTokenResponse rejects a response without access_token', () => {
+    expect(() => manager.parseTokenResponse({ refresh_token: 'rt', expires_in: 3600 })).toThrow('access_token')
+  })
+
+  it('keeps the current refresh token when the refresh response omits it', async () => {
+    await store.set({ accessToken: 'old', refreshToken: 'rt', expiresAt: 0, tokenType: 'Bearer' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'new', expires_in: 3600 }),
+    }))
+
+    const result = await manager.getValidToken()
+    expect(result.accessToken).toBe('new')
+    expect(result.refreshToken).toBe('rt')
+    vi.unstubAllGlobals()
+  })
+
+  it('clears the session when the refresh token is rejected', async () => {
+    await store.set({ accessToken: 'old', refreshToken: 'rt', expiresAt: 0, tokenType: 'Bearer' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }))
+
+    await expect(manager.getValidToken()).rejects.toThrow('Please log in again')
+    expect(await store.get()).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps the session when the refresh fails with a transient error', async () => {
+    const tokens = { accessToken: 'old', refreshToken: 'rt', expiresAt: 0, tokenType: 'Bearer' }
+    await store.set(tokens)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
+
+    await expect(manager.getValidToken()).rejects.toThrow('Token refresh failed (503)')
+    expect(await store.get()).toEqual(tokens)
+    vi.unstubAllGlobals()
+  })
+
+  it('refreshAfterUnauthorized reuses tokens already refreshed by another request', async () => {
+    const rejected = { accessToken: 'old', refreshToken: 'old-rt', expiresAt: 9999999999, tokenType: 'Bearer' }
+    const current = { accessToken: 'new', refreshToken: 'new-rt', expiresAt: 9999999999, tokenType: 'Bearer' }
+    await store.set(current)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await manager.refreshAfterUnauthorized(rejected)).toEqual(current)
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('refreshAfterUnauthorized refreshes when the rejected token is still the stored one', async () => {
+    const rejected = { accessToken: 'old', refreshToken: 'rt', expiresAt: 9999999999, tokenType: 'Bearer' }
+    await store.set(rejected)
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'new', refresh_token: 'new-rt', expires_in: 3600 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const [a, b] = await Promise.all([
+      manager.refreshAfterUnauthorized(rejected),
+      manager.refreshAfterUnauthorized(rejected),
+    ])
+    expect(a.accessToken).toBe('new')
+    expect(b.accessToken).toBe('new')
+    expect(fetchMock).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('FileTokenStore', () => {
+  const tokens = { accessToken: 'at', refreshToken: 'rt', expiresAt: 9999999999, tokenType: 'Bearer' }
+
+  it('round-trips tokens and clears them', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'retyc-tokens-'))
+    try {
+      const store = new FileTokenStore(path.join(dir, 'nested', 'tokens.json'))
+      expect(await store.get()).toBeNull()
+      await store.set(tokens)
+      expect(await store.get()).toEqual(tokens)
+      await store.clear()
+      expect(await store.get()).toBeNull()
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('restricts the token file to its owner', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'retyc-tokens-'))
+    try {
+      const filePath = path.join(dir, 'tokens.json')
+      writeFileSync(filePath, '{}', { mode: 0o644 })
+      await new FileTokenStore(filePath).set(tokens)
+      expect(statSync(filePath).mode & 0o777).toBe(0o600)
+    }
+    finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
