@@ -31,7 +31,7 @@ The public surface is a single class `RetycSDK` exposing three namespaces:
 
 Internal modules:
 
-- `auth/` — OIDC discovery (`/login/config/public` + `.well-known/openid-configuration`), device flow polling, refresh, in-memory + file token stores
+- `auth/` — OIDC discovery (`/login/config/public` + `.well-known/openid-configuration`), device flow polling, refresh, in-memory + file token stores. `FileTokenStore` is only exported from the `@retyc/sdk/node` entry (`src/node.ts`); browser plugins bundle the `browser` export condition (`dist/index.browser.js`), which must not reference any Node.js built-in: the ones needed by `download()` with `outputPath` are confined to `transfers/file-sink.ts`, swapped for `file-sink.browser.ts` in that build (`tsup.config.ts`)
 - `crypto/age.ts` — thin wrappers around `age-encryption` (Node.js, no Web Worker)
 - `http/client.ts` — fetch wrapper with automatic 401 → refresh → retry, multipart upload, raw byte download
 - `transfers/` — upload/download orchestration and the API client (one method per endpoint)
@@ -86,7 +86,8 @@ The frontend runs in the browser; the SDK runs in Node.js. These deltas are inte
 
 ## API client conventions
 
-- All requests go through `FetchClient` which transparently handles 401 → refresh → retry once. The retry goes through `TokenManager.refreshAfterUnauthorized()`, which reuses tokens already refreshed by a concurrent request instead of spending the old refresh token twice.
+- All requests go through `FetchClient` which transparently handles 401 → refresh → retry once. The retry goes through `TokenManager.refreshAfterUnauthorized()`, which reuses tokens already refreshed by a concurrent request instead of spending the old refresh token twice. Every refresh re-reads the store first — inside `TokenStore.withLock` when the store implements it — so contexts sharing a store (tabs, iframes) spend the refresh token once.
+- Authentication failures (`not_authenticated`, `session_expired`, and `unauthorized` for an API `401` that survives the refresh-and-retry) throw `RetycAuthError`; other errors stay plain `Error`.
 - A failed refresh only clears the token store on `400`/`401` (grant rejected). Other statuses are treated as transient and keep the session.
 - Endpoints are typed via interfaces in `transfers/types.ts` and `user/types.ts`. These interfaces are intentionally narrow — they declare only the fields the SDK reads. The OpenAPI source of truth (`openapi.json`) has more fields; do not add ones the SDK does not use.
 - Response status `204` returns `undefined` from `request<T>` (used for completion/disable/delete).

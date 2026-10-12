@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { FileTokenStore, InMemoryTokenStore } from '../auth/token-store.js'
+import { InMemoryTokenStore, type TokenStore } from '../auth/token-store.js'
+import { FileTokenStore } from '../auth/file-token-store.js'
+import { RetycAuthError } from '../auth/errors.js'
+import { FetchClient } from '../http/client.js'
+import { isTokenSet } from '../auth/types.js'
 import { TokenManager } from '../auth/token-manager.js'
 import type { OIDCConfig } from '../auth/oidc-discovery.js'
 
@@ -157,6 +161,70 @@ describe('TokenManager', () => {
     expect(b.accessToken).toBe('new')
     expect(fetchMock).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
+  })
+  it('throws a typed error when not authenticated or when the session expired', async () => {
+    await expect(manager.getValidToken()).rejects.toMatchObject({ name: 'RetycAuthError', code: 'not_authenticated' })
+
+    await store.set({ accessToken: 'old', refreshToken: 'rt', expiresAt: 0, tokenType: 'Bearer' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }))
+    const error = await manager.getValidToken().catch(e => e)
+    expect(error).toBeInstanceOf(RetycAuthError)
+    expect(error.code).toBe('session_expired')
+    vi.unstubAllGlobals()
+  })
+
+  it('spends the refresh token once across managers sharing a locked store', async () => {
+    let tail: Promise<unknown> = Promise.resolve()
+    const locked: TokenStore = {
+      get: () => store.get(),
+      set: tokens => store.set(tokens),
+      clear: () => store.clear(),
+      withLock<T>(fn: () => Promise<T>): Promise<T> {
+        const result = tail.then(fn)
+        tail = result.catch(() => {})
+        return result
+      },
+    }
+    await store.set({ accessToken: 'old', refreshToken: 'rt', expiresAt: 0, tokenType: 'Bearer' })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'new', refresh_token: 'new-rt', expires_in: 3600 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = new TokenManager(locked, 'https://api.example.com', mockOIDCConfig)
+    const second = new TokenManager(locked, 'https://api.example.com', mockOIDCConfig)
+    const [a, b] = await Promise.all([first.forceRefresh(), second.forceRefresh()])
+
+    expect(a.accessToken).toBe('new')
+    expect(b).toEqual(a)
+    expect(fetchMock).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('FetchClient', () => {
+  it('throws a typed error when the API still answers 401 after a refresh', async () => {
+    const store = new InMemoryTokenStore()
+    await store.set({ accessToken: 'at', refreshToken: 'rt', expiresAt: 9999999999, tokenType: 'Bearer' })
+    const client = new FetchClient('https://api.example.com', new TokenManager(store, 'https://api.example.com', mockOIDCConfig))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === mockOIDCConfig.tokenUrl
+      ? { ok: true, json: async () => ({ access_token: 'new', refresh_token: 'new-rt', expires_in: 3600 }) }
+      : { ok: false, status: 401, json: async () => ({ detail: 'Unauthorized' }) }))
+
+    await expect(client.get('/user/me')).rejects.toMatchObject({ name: 'RetycAuthError', code: 'unauthorized' })
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('isTokenSet', () => {
+  it('accepts a complete token set and rejects malformed values', () => {
+    const tokens = { accessToken: 'at', refreshToken: 'rt', expiresAt: 9999999999, tokenType: 'Bearer' }
+    expect(isTokenSet(tokens)).toBe(true)
+    expect(isTokenSet(null)).toBe(false)
+    expect(isTokenSet('{}')).toBe(false)
+    expect(isTokenSet({ ...tokens, refreshToken: '' })).toBe(false)
+    expect(isTokenSet({ ...tokens, expiresAt: '9999999999' })).toBe(false)
   })
 })
 

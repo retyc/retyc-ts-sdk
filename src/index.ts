@@ -132,8 +132,11 @@ export class RetycSDK {
 export { decryptStringWithPassphrase } from './crypto/age.js'
 export type { SDKConfig } from './types.js'
 export type { TokenStore } from './auth/token-store.js'
-export { InMemoryTokenStore, FileTokenStore } from './auth/token-store.js'
+export { InMemoryTokenStore } from './auth/token-store.js'
+export { isTokenSet } from './auth/types.js'
 export type { TokenSet, DeviceFlowResult } from './auth/types.js'
+export { RetycAuthError } from './auth/errors.js'
+export type { RetycAuthErrorCode } from './auth/errors.js'
 export type { OIDCConfig } from './auth/oidc-discovery.js'
 export type { UploadCapabilitiesApiResponse, UserApiResponse, UserKeyApiResponse, UserKeyStatus, UserQuotaApiResponse } from './user/types.js'
 export type {

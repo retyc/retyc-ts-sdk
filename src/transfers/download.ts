@@ -1,6 +1,4 @@
-import { mkdirSync } from 'node:fs'
-import { open } from 'node:fs/promises'
-import path from 'node:path'
+import { ensureDirectory, openForWrite, parentDirectory, resolveSafeDestination } from './file-sink.js'
 import {
   decryptString,
   decryptStringWithPassphrase,
@@ -58,7 +56,7 @@ export async function downloadTransfer(
   const files = await transferApi.getTransferFiles(transferId)
 
   if (outputPath !== undefined) {
-    mkdirSync(outputPath, { recursive: true })
+    ensureDirectory(outputPath)
   }
 
   const results: DownloadedFile[] = []
@@ -79,11 +77,11 @@ export async function downloadTransfer(
 
     if (outputPath !== undefined) {
       const destination = resolveSafeDestination(outputPath, name)
-      mkdirSync(path.dirname(destination), { recursive: true })
+      ensureDirectory(parentDirectory(destination))
 
       // Chunks are fetched one batch at a time and flushed in order, so peak memory is
       // `concurrency` chunks rather than the whole file.
-      const handle = await open(destination, 'w')
+      const handle = await openForWrite(destination)
       let totalSize = 0
       try {
         for (let from = 0; from < file.chunk_count; from += batchSize) {
@@ -106,29 +104,4 @@ export async function downloadTransfer(
   }
 
   return results
-}
-
-// Mirrors frontend/app/composables/use-download.ts:assertSafePath — guards against path traversal
-// when filenames are decrypted from untrusted ciphertext. Names may carry sub-directories
-// (folder uploads from the web app), which are recreated under outputPath. Backslashes are
-// treated as separators and the resolved path is re-checked so the guard also holds on Windows.
-function resolveSafeDestination(outputPath: string, name: string): string {
-  const segments = name.split(/[\\/]/)
-  const root = path.resolve(outputPath)
-  const destination = path.resolve(root, name)
-  const relative = path.relative(root, destination)
-  if (
-    name.length === 0
-    || name.includes('\0')
-    || /^[\\/]/.test(name)
-    || path.isAbsolute(name)
-    || segments.some(seg => seg === '..')
-    || relative === ''
-    || relative === '..'
-    || relative.startsWith(`..${path.sep}`)
-    || path.isAbsolute(relative)
-  ) {
-    throw new Error(`Unsafe file name: ${name}`)
-  }
-  return destination
 }

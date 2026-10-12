@@ -1,4 +1,5 @@
 import type { TokenManager } from '../auth/token-manager.js'
+import { RetycAuthError } from '../auth/errors.js'
 
 export class FetchClient {
   constructor(
@@ -110,6 +111,8 @@ export class FetchClient {
         message = `${message}: ${detail}`
       }
     } catch { /* non-JSON body */ }
+    // Only reached for a 401 once the refreshed token was rejected too.
+    if (response.status === 401) throw new RetycAuthError('unauthorized', message)
     throw new Error(message)
   }
 }
