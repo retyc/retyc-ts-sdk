@@ -2,9 +2,28 @@
   "name": "@retyc/sdk",
   "version": "1.0.3",
   "description": "TypeScript SDK for the Retyc API — OIDC auth + E2E encrypted transfers",
+  "keywords": [
+    "retyc",
+    "file-transfer",
+    "file-sharing",
+    "e2ee",
+    "end-to-end-encryption",
+    "age",
+    "post-quantum",
+    "sdk"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/retyc/retyc-ts-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/retyc/retyc-ts-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/retyc/retyc-ts-sdk/issues"
+  },
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "exports": {
     ".": {
@@ -19,6 +38,7 @@
   "files": [
     "dist"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsup && tsc --project tsconfig.build.json --emitDeclarationOnly --declarationMap",
     "build:watch": "tsup --watch",
