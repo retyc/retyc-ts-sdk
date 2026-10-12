@@ -23,6 +23,8 @@ export async function uploadTransfer(
   const { recipients, title, expires, passphrase, message, files, onProgress, encryptWithMyKey } = options
   const includeMyKey = encryptWithMyKey !== false
 
+  if (!(chunkSize >= 1)) throw new RangeError(`chunkSize must be >= 1, got ${chunkSize}`)
+
   // The API rejects shares whose recipient list includes the caller, so `getMe()` is
   // always needed to strip the caller's email — even when `encryptWithMyKey` is off.
   // `getActiveKey()` is only needed when wrapping the session key for the caller.
