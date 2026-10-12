@@ -136,8 +136,30 @@ const result = await sdk.transfers.upload({
 })
 
 console.log('Transfer created:', result.transferId)
-console.log('Share link: https://retyc.com/share/' + result.slug)
+console.log('Share link:', result.webUrl)
 ```
+
+Optional settings:
+
+```ts
+await sdk.transfers.upload({
+  recipients: ['alice@example.com'],
+  expires: 7,
+  files: [/* ... */],
+  // Lets recipients without a Retyc account decrypt the transfer
+  passphrase: 'a-strong-passphrase',
+  // End-to-end encrypted message shown to recipients
+  message: 'Here is the report.',
+  // Default: true. Also wraps the session key for your own active key so you can
+  // decrypt your own transfer. Set to false for accounts without an active key.
+  encryptWithMyKey: true,
+  onProgress: ({ ratio, currentFile }) => {
+    console.log(`${Math.round(ratio * 100)}% (${currentFile.name})`)
+  },
+})
+```
+
+`data` accepts a `Buffer`, a `Uint8Array` or a `Readable`. Each file is fully read into memory before being chunked, so peak memory is roughly the size of the largest file.
 
 #### Download
 
@@ -190,11 +212,15 @@ for (const file of files) {
 }
 ```
 
-The output directory is created automatically. File names containing `..` or starting with `/` are rejected.
+The output directory is created automatically, as are sub-directories carried by file names (folder uploads from the web app). Absolute file names and names with a `..` segment are rejected. Files with the same name overwrite each other.
 
 #### Manage transfers
 
 ```ts
+// Fetch a transfer's metadata (status, title, creation date...)
+const transfer = await sdk.transfers.get('transfer-id')
+console.log(transfer.status)
+
 // Disable a transfer (recipients can no longer access it)
 await sdk.transfers.disable('transfer-id')
 
@@ -225,19 +251,34 @@ await sdk.transfers.forceDelete('transfer-id')
 | `getTokens()` | `TokenSet \| null` | Read the currently stored tokens (or `null` if not authenticated). |
 | `logout()` | `void` | Clear stored tokens. |
 
+`sdk.preload()` optionally pre-fetches the OIDC configuration.
+
 ### `sdk.user`
 
 | Method | Returns | Description |
 | --- | --- | --- |
 | `getMe()` | `UserApiResponse` | Authenticated user profile + OIDC extra data + roles |
 | `getActiveKey()` | `UserKeyApiResponse` | Active age keypair (`public_key`, `private_key_enc`, `status`) |
+| `getUploadCapabilities()` | `UploadCapabilitiesApiResponse` | Plan limits (max transfer size, max expiration...) and feature flags |
+| `getUserQuota()` | `UserQuotaApiResponse` | Current usage against the plan quota |
+
+### `sdk.transfers`
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `upload(options)` | `UploadResult` | Create, encrypt and upload a transfer. Returns `transferId`, `slug` and `webUrl`. |
+| `get(transferId)` | `TransferApiResponse` | Transfer metadata |
+| `resolveSessionKey(transferId, options)` | `string` | Decrypt the transfer session key with `{ privateKey }` or `{ transferPassphrase }` |
+| `download(transferId, sessionKey, options?)` | `DownloadedFile[]` | Download and decrypt all files, in memory or to `outputPath` |
+| `disable(transferId)` | `void` | Revoke access to a transfer |
+| `forceDelete(transferId)` | `void` | Permanently delete a transfer and its files |
 
 ### Token stores
 
 | Class | Description |
 | --- | --- |
 | `InMemoryTokenStore` | Default. Tokens are lost when the process exits. |
-| `FileTokenStore(path)` | Persists tokens to a JSON file on disk. |
+| `FileTokenStore(path)` | Persists tokens to a JSON file on disk, readable by the current OS user only (`0600`). Not encrypted at rest. |
 
 You can implement the `TokenStore` interface to use any custom storage backend (keychain, database, etc.).
 

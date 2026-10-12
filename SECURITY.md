@@ -9,6 +9,11 @@ See our security policy and contact details at:
 
 ## Known limitations
 
-- Authentication tokens (access token + refresh token) are stored in `browser.storage.local`,
-  which is not encrypted at rest. Anyone with access to the Thunderbird profile directory
-  can read them. Protect your OS user account accordingly.
+- `FileTokenStore` persists the access token and refresh token as plain JSON. The file is
+  created with owner-only permissions (`0600`), but it is not encrypted at rest: anyone who can
+  read it as your OS user (or as root) can impersonate your session. On platforms without POSIX
+  permissions (Windows), the file inherits the ACLs of its parent directory. Implement the
+  `TokenStore` interface on top of an OS keychain or a secret manager if you need stronger
+  guarantees.
+- Unless `outputPath` is used, downloaded files are fully buffered in memory. Uploads always
+  buffer one file at a time.
