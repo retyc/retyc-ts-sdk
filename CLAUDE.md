@@ -26,8 +26,8 @@ When in doubt about expected behaviour, the frontend is authoritative:
 The public surface is a single class `RetycSDK` exposing three namespaces:
 
 - `sdk.auth` — OAuth 2.0 Device Flow (Keycloak), token refresh, persistence via `TokenStore`
-- `sdk.user` — `getMe()`, `getActiveKey()`
-- `sdk.transfers` — `upload()`, `resolveSessionKey()`, `download()`, `disable()`, `forceDelete()`
+- `sdk.user` — `getMe()`, `getActiveKey()`, `getUploadCapabilities()`, `getUserQuota()`
+- `sdk.transfers` — `upload()`, `get()`, `resolveSessionKey()`, `download()`, `disable()`, `forceDelete()`
 
 Internal modules:
 
@@ -71,7 +71,7 @@ Internal modules:
 1. Pages through `/share/{id}/files` (size 100).
 2. For each file: decrypts `name_enc` and `type_enc` with the session key, downloads each chunk in parallel (bounded), decrypts with the session key.
 3. Files are processed sequentially (bounded peak memory).
-4. If `outputPath` is set: each file is streamed to disk and `data` is `null`. File names are validated against path traversal (`..` segments and leading `/` are rejected — same rule as `assertSafePath` in `use-download.ts`).
+4. If `outputPath` is set: chunks are downloaded in batches of `downloadConcurrency` and flushed to disk in order (peak memory is one batch, not one file) and `data` is `null`. File names are validated against path traversal before any chunk is downloaded (`..` segments and leading `/` are rejected — same rule as `assertSafePath` in `use-download.ts`; the SDK additionally treats `\` as a separator and checks that the resolved path stays under `outputPath`). Sub-directories in file names are created, like `getFileHandleFromPath` in the frontend.
 
 ## Intentional differences from the frontend
 
@@ -79,14 +79,15 @@ The frontend runs in the browser; the SDK runs in Node.js. These deltas are inte
 
 - **No Web Worker / Comlink**. The frontend offloads age operations to `crypto.worker.ts` to keep the UI responsive; in Node.js the SDK calls `age-encryption` synchronously on the main thread.
 - **No File System Access API / JSZip / `URL.createObjectURL`**. The SDK exposes `outputPath` (Node `fs` streaming) or in-memory `Buffer` instead.
-- **No progress callbacks yet**. The frontend tracks per-chunk progress for UI; the SDK is a fire-and-forget API. Add this only if explicitly requested.
+- **Upload progress only**. The frontend tracks per-chunk progress for UI; the SDK exposes `onProgress` on `upload()` (called once per uploaded chunk) and nothing for downloads. Add more only if explicitly requested.
 - **No streaming chunk upload through the API client**. The SDK reads each file fully into a `Buffer` before chunking. Streaming Readable input is accepted but is consumed fully via `readToBuffer` first. This bounds peak memory to one file at a time, not one chunk.
 - **Folder uploads (`webkitRelativePath`)**. Browser-only concept; the SDK uses the literal `name` field of `UploadFile`.
 - **`encryptWithMyKey` default-on**. The SDK fetches the caller's active key automatically (default `true`); the frontend exposes the same toggle but defaults to off in some flows. Callers who don't want this — or are running as a service account with no active key — must pass `encryptWithMyKey: false`.
 
 ## API client conventions
 
-- All requests go through `FetchClient` which transparently handles 401 → refresh → retry once.
+- All requests go through `FetchClient` which transparently handles 401 → refresh → retry once. The retry goes through `TokenManager.refreshAfterUnauthorized()`, which reuses tokens already refreshed by a concurrent request instead of spending the old refresh token twice.
+- A failed refresh only clears the token store on `400`/`401` (grant rejected). Other statuses are treated as transient and keep the session.
 - Endpoints are typed via interfaces in `transfers/types.ts` and `user/types.ts`. These interfaces are intentionally narrow — they declare only the fields the SDK reads. The OpenAPI source of truth (`openapi.json`) has more fields; do not add ones the SDK does not use.
 - Response status `204` returns `undefined` from `request<T>` (used for completion/disable/delete).
 
