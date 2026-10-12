@@ -74,7 +74,8 @@ async function pollDeviceToken(
       return tokenManager.saveTokens(raw)
     }
 
-    const error = await response.json() as { error: string }
+    // A proxy or gateway error is not guaranteed to be JSON.
+    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` })) as { error: string }
 
     if (error.error === 'authorization_pending') continue
     if (error.error === 'slow_down') { currentInterval += 5; continue }
