@@ -68,6 +68,12 @@ const tokens = await flow.poll()
 console.log('Authenticated! Access token expires at:', tokens.expiresAt)
 ```
 
+The SDK requests the `openid` scope. Pass `scopes` to request more (duplicates are ignored):
+
+```ts
+const flow = await sdk.auth.startDeviceFlow({ scopes: ['offline_access'] })
+```
+
 #### Reloading an existing session
 
 If tokens were persisted (e.g. via `FileTokenStore`), the SDK auto-refreshes them on the first request — no extra setup needed.
@@ -247,7 +253,7 @@ await sdk.transfers.forceDelete('transfer-id')
 
 | Method | Returns | Description |
 | --- | --- | --- |
-| `startDeviceFlow()` | `DeviceFlowResult` | Initiate the OAuth 2.0 Device Authorization Grant. Call `.poll()` on the result to wait for the user. |
+| `startDeviceFlow(options?)` | `DeviceFlowResult` | Initiate the OAuth 2.0 Device Authorization Grant. `options.scopes` adds scopes to the default `openid`. Call `.poll()` on the result to wait for the user. |
 | `refresh()` | `TokenSet` | Force a token refresh using the stored refresh token. Refreshes are otherwise triggered automatically. |
 | `getTokens()` | `TokenSet \| null` | Read the currently stored tokens (or `null` if not authenticated). |
 | `logout()` | `void` | Clear stored tokens. |
