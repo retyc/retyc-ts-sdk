@@ -1,7 +1,6 @@
 export interface OIDCConfig {
   issuer: string
   clientId: string
-  scopes: string[]
   deviceAuthUrl: string
   tokenUrl: string
   endSessionUrl?: string
@@ -10,7 +9,6 @@ export interface OIDCConfig {
 interface PublicLoginConfig {
   issuer: string
   client_id: string
-  scopes: string[]
 }
 
 interface OIDCDiscovery {
@@ -51,7 +49,6 @@ export async function fetchOIDCConfig(apiUrl: string): Promise<OIDCConfig> {
   return {
     issuer: pubConfig.issuer,
     clientId: pubConfig.client_id,
-    scopes: pubConfig.scopes ?? [],
     deviceAuthUrl: discovery.device_authorization_endpoint,
     tokenUrl: discovery.token_endpoint,
     endSessionUrl: discovery.end_session_endpoint,

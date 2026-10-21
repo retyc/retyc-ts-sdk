@@ -31,7 +31,7 @@ The public surface is a single class `RetycSDK` exposing three namespaces:
 
 Internal modules:
 
-- `auth/` — OIDC discovery (`/login/config/public` + `.well-known/openid-configuration`), device flow polling, refresh, in-memory + file token stores. `FileTokenStore` is only exported from the `@retyc/sdk/node` entry (`src/node.ts`); browser plugins bundle the `browser` export condition (`dist/index.browser.js`), which must not reference any Node.js built-in: the ones needed by `download()` with `outputPath` are confined to `transfers/file-sink.ts`, swapped for `file-sink.browser.ts` in that build (`tsup.config.ts`)
+- `auth/` — OIDC discovery (`/login/config/public` for `issuer`/`client_id` only — its deprecated `scopes` field is ignored — + `.well-known/openid-configuration`), device flow (scopes: `openid` plus `startDeviceFlow({ scopes })`, deduped) and polling, refresh, in-memory + file token stores. `FileTokenStore` is only exported from the `@retyc/sdk/node` entry (`src/node.ts`); browser plugins bundle the `browser` export condition (`dist/index.browser.js`), which must not reference any Node.js built-in: the ones needed by `download()` with `outputPath` are confined to `transfers/file-sink.ts`, swapped for `file-sink.browser.ts` in that build (`tsup.config.ts`)
 - `crypto/age.ts` — thin wrappers around `age-encryption` (Node.js, no Web Worker)
 - `http/client.ts` — fetch wrapper with automatic 401 → refresh → retry, multipart upload, raw byte download
 - `transfers/` — upload/download orchestration and the API client (one method per endpoint)

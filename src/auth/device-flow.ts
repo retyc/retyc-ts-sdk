@@ -1,16 +1,19 @@
-import type { DeviceFlowResult, TokenSet } from './types.js'
+import type { DeviceFlowOptions, DeviceFlowResult, TokenSet } from './types.js'
 import type { OIDCConfig } from './oidc-discovery.js'
 import type { TokenManager } from './token-manager.js'
 
 const DEFAULT_POLL_INTERVAL = 5
+const DEFAULT_SCOPES: readonly string[] = ['openid']
 
 export async function startDeviceFlow(
   config: OIDCConfig,
   tokenManager: TokenManager,
+  options: DeviceFlowOptions = {},
 ): Promise<DeviceFlowResult> {
+  const scopes = new Set([...DEFAULT_SCOPES, ...(options.scopes ?? []).map(s => s.trim()).filter(Boolean)])
   const body = new URLSearchParams({
     client_id: config.clientId,
-    scope: config.scopes.join(' '),
+    scope: [...scopes].join(' '),
   })
 
   const response = await fetch(config.deviceAuthUrl, {

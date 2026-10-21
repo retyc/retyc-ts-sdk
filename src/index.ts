@@ -8,7 +8,7 @@ import { TransferApiClient } from './transfers/transfer-client.js'
 import { uploadTransfer } from './transfers/upload.js'
 import { downloadTransfer, resolveSessionKey } from './transfers/download.js'
 import type { SDKConfig } from './types.js'
-import type { DeviceFlowResult, TokenSet } from './auth/types.js'
+import type { DeviceFlowOptions, DeviceFlowResult, TokenSet } from './auth/types.js'
 import type { UploadCapabilitiesApiResponse, UserApiResponse, UserKeyApiResponse, UserQuotaApiResponse } from './user/types.js'
 import type {
   CreateTransferOptions,
@@ -32,7 +32,7 @@ export class RetycSDK {
   private readonly apiUrl: string
 
   readonly auth: {
-    startDeviceFlow(): Promise<DeviceFlowResult>
+    startDeviceFlow(options?: DeviceFlowOptions): Promise<DeviceFlowResult>
     refresh(): Promise<TokenSet>
     logout(): Promise<void>
     getTokens(): Promise<TokenSet | null>
@@ -75,10 +75,10 @@ export class RetycSDK {
     const self = this
 
     this.auth = {
-      async startDeviceFlow(): Promise<DeviceFlowResult> {
+      async startDeviceFlow(options?: DeviceFlowOptions): Promise<DeviceFlowResult> {
         const oidcConfig = await fetchOIDCConfig(self.apiUrl)
         self.tokenManager.setOIDCConfig(oidcConfig)
-        return startDeviceFlow(oidcConfig, self.tokenManager)
+        return startDeviceFlow(oidcConfig, self.tokenManager, options)
       },
       refresh(): Promise<TokenSet> {
         return self.tokenManager.forceRefresh()
@@ -134,7 +134,7 @@ export type { SDKConfig } from './types.js'
 export type { TokenStore } from './auth/token-store.js'
 export { InMemoryTokenStore } from './auth/token-store.js'
 export { isTokenSet } from './auth/types.js'
-export type { TokenSet, DeviceFlowResult } from './auth/types.js'
+export type { TokenSet, DeviceFlowOptions, DeviceFlowResult } from './auth/types.js'
 export { RetycAuthError } from './auth/errors.js'
 export type { RetycAuthErrorCode } from './auth/errors.js'
 export type { OIDCConfig } from './auth/oidc-discovery.js'

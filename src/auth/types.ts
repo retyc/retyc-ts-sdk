@@ -14,6 +14,11 @@ export function isTokenSet(value: unknown): value is TokenSet {
     && typeof candidate.tokenType === 'string' && candidate.tokenType !== ''
 }
 
+export interface DeviceFlowOptions {
+  /** Extra OAuth scopes requested in addition to the default `openid`. */
+  scopes?: string[]
+}
+
 export interface DeviceFlowResult {
   userCode: string
   verificationUri: string

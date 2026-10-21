@@ -13,7 +13,6 @@ import type { OIDCConfig } from '../auth/oidc-discovery.js'
 const mockOIDCConfig: OIDCConfig = {
   issuer: 'https://auth.example.com/realms/test',
   clientId: 'sdk-test',
-  scopes: ['openid', 'profile', 'offline_access'],
   deviceAuthUrl: 'https://auth.example.com/realms/test/protocol/openid-connect/auth/device',
   tokenUrl: 'https://auth.example.com/realms/test/protocol/openid-connect/token',
 }
@@ -290,8 +289,32 @@ describe('fetchOIDCConfig', () => {
     expect(config.clientId).toBe('sdk-public')
     expect(config.deviceAuthUrl).toContain('auth/device')
     expect(config.tokenUrl).toContain('token')
-    expect(config.scopes).toContain('offline_access')
+    expect(config).not.toHaveProperty('scopes')
     vi.unstubAllGlobals()
+  })
+})
+
+describe('Device Flow scopes', () => {
+  async function requestedScope(options?: { scopes?: string[] }): Promise<string | null> {
+    const { startDeviceFlow } = await import('../auth/device-flow.js')
+    const manager = new TokenManager(new InMemoryTokenStore(), 'https://api.example.com', mockOIDCConfig)
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ device_code: 'dc', user_code: 'UC', verification_uri: 'https://x', expires_in: 300 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    await startDeviceFlow(mockOIDCConfig, manager, options)
+    vi.unstubAllGlobals()
+    return new URLSearchParams(fetchMock.mock.calls[0][1].body as string).get('scope')
+  }
+
+  it('requests openid by default', async () => {
+    expect(await requestedScope()).toBe('openid')
+  })
+
+  it('appends extra scopes and dedupes them', async () => {
+    expect(await requestedScope({ scopes: ['offline_access', 'openid', ' profile ', ''] }))
+      .toBe('openid offline_access profile')
   })
 })
 
